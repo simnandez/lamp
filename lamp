@@ -1,0 +1,149 @@
+#!/bin/bash
+
+# Muestra el menu general
+_menu()
+{
+	echo
+	echo -e "\e[36mLAMP Configurator Pro-Expert 2.0.14\e[0m"
+	echo
+	echo -e "\e[32mConfiguración actual:"
+    	php -r \@phpinfo\(\)\; | grep 'PHP Version' -m 1
+	if [ -f /etc/mysql/conf.d/enable_strict_mode.cnf ];
+	then
+	echo -e "MySQL StrictMode => ACTIVADO\e[0m"
+	else
+	echo -e "MySQL StrictMode => DESACTIVADO\e[0m"
+	fi
+        echo ""
+	echo "Menú de opciones:"
+	echo
+	echo "I) Iniciar LAMP"
+        echo "P) Parar LAMP"
+        echo "R) Reiniciar LAMP"
+        echo
+	echo "A) Activar MySQL StrictMode"
+	echo "D) Desactivar MySQL StrictMode"
+	echo
+        echo "1) Cambiar a PHP 5.6"
+        echo "2) Cambiar a PHP 7.0"
+	echo "3) Cambiar a PHP 7.1"
+	echo "4) Cambiar a PHP 7.2"
+	echo "5) Cambiar a PHP 7.3"
+	echo "6) Cambiar a PHP 7.4"
+        echo
+	echo "0) Salir"
+	echo -e "\e[32m"
+	echo -n "Indica una opción: "
+}
+
+while :
+do
+    case $opc in
+        i|I)
+	    clear
+	    echo -e "\e[36mIniciando LAMP...\e[0m"
+            sudo /etc/init.d/apache2 start && sudo /etc/init.d/mysql start;
+            echo -e "\e[36mLAMP iniciado, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        p|P)
+	    clear
+            echo -e "\e[36mParando LAMP...\e[0m"
+            sudo /etc/init.d/apache2 stop && sudo /etc/init.d/mysql stop;
+	    echo -e "\e[36mLAMP parado, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        r|R)
+	    clear
+	    echo -e "\e[36mReiniciando LAMP...\e[0m"
+            sudo /etc/init.d/apache2 restart && sudo /etc/init.d/mysql restart;
+ 	    echo -e "\e[36mLAMP reiniciado, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        1)
+	    clear
+            echo -e "\e[36mCambiando a PHP 5.6...\e[0m"
+            sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2enmod php5.6 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php5.6 /etc/alternatives/php;
+            echo -e "\e[36mPHP 5.6 activo, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        2)
+            clear
+            echo -e "\e[36mCambiando a PHP 7.0...\e[0m"
+            sudo a2dismod php5.6 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2enmod php7.0 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php7.0 /etc/alternatives/php;
+            echo -e "\e[36mPHP 7.0 activo, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        3)
+            clear
+	    echo -e "\e[36mCambiando a PHP 7.1...\e[0m"
+            sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2enmod php7.1 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php7.1 /etc/alternatives/php;
+            echo -e "\e[36mPHP 7.1 activo, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+        4)
+            clear
+	    echo -e "\e[36mCambiando a PHP 7.2...\e[0m"
+            sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2enmod php7.2 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php7.2 /etc/alternatives/php;
+            echo -e "\e[36mPHP 7.2 activo, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+	5)
+            clear
+ 	    echo -e "\e[36mCambiando a PHP 7.3...\e[0m"
+	    sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.4 && sudo a2enmod php7.3 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php7.3 /etc/alternatives/php;
+            echo -e "\e[36mPHP 7.3 activo, hasta la próxima $USER\e[0m"
+            exit
+	       ;;
+
+        6)
+            clear
+            echo -e "\e[36mCambiando a PHP 7.4...\e[0m"
+            sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2enmod php7.4 && sudo /etc/init.d/apache2 restart;
+            sudo ln -sfn /usr/bin/php7.4 /etc/alternatives/php;
+            echo -e "\e[36mPHP 7.4 activo, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+      d|D)
+	    clear
+            echo -e "\e[36mDesactivando MySQL StrictMode...\e[0m" 
+            sudo rm /etc/mysql/conf.d/enable_strict_mode.cnf && sudo service mysql restart;
+            echo -e "\e[36mMySQL StrictMode desactivado, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+      a|A)
+            clear
+            echo -e "\e[36mActivando MySQL StrictMode...\e[0m"
+            sudo cp /etc/mysql/conf.d/enable_strict_mode.cnf.back /etc/mysql/conf.d/enable_strict_mode.cnf && sudo service mysql restart;
+            echo -e "\e[36mMySQL StrictMode activado, hasta la próxima $USER\e[0m"
+            exit
+            ;;
+
+       0)
+            echo -e "\e[36mHasta luego $USER\e[0m"
+            exit
+            ;;
+
+	*) # Esta opcion se ejecuta si no es ninguna de las anteriores
+            clear
+            _menu
+           ;;
+    esac
+
+read opc
+
+done
