@@ -4,7 +4,7 @@
 _menu()
 {
   echo
-  echo -e "\e[36mLAMP Configurator Pro-Expert 2.1.0\e[0m"
+  echo -e "\e[36mLAMP Configurator Pro-Expert 2.2.0\e[0m"
   echo
   echo -e "\e[32mConfiguración actual:"
   php -r \@phpinfo\(\)\; | grep 'PHP Version' -m 1
@@ -31,6 +31,7 @@ _menu()
   echo "5) Cambiar a PHP 7.3"
   echo "6) Cambiar a PHP 7.4"
   echo "7) Cambiar a PHP 8.0"
+  echo "8) Cambiar a PHP 8.1"
   echo
   echo "0) Salir"
   echo -e "\e[32m"
@@ -67,7 +68,7 @@ do
     1)
       clear
       echo -e "\e[36mCambiando a PHP 5.6...\e[0m"
-      sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php5.6 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php5.6 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php5.6 /etc/alternatives/php;
       echo -e "\e[36mPHP 5.6 activo, hasta la próxima $USER\e[0m"
       exit
@@ -76,7 +77,7 @@ do
     2)
       clear
       echo -e "\e[36mCambiando a PHP 7.0...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php7.0 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php7.0 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php7.0 /etc/alternatives/php;
       echo -e "\e[36mPHP 7.0 activo, hasta la próxima $USER\e[0m"
       exit
@@ -85,7 +86,7 @@ do
     3)
       clear
       echo -e "\e[36mCambiando a PHP 7.1...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php7.1 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php7.1 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php7.1 /etc/alternatives/php;
       echo -e "\e[36mPHP 7.1 activo, hasta la próxima $USER\e[0m"
       exit
@@ -94,7 +95,7 @@ do
     4)
       clear
       echo -e "\e[36mCambiando a PHP 7.2...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php7.2 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php7.2 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php7.2 /etc/alternatives/php;
       echo -e "\e[36mPHP 7.2 activo, hasta la próxima $USER\e[0m"
       exit
@@ -103,7 +104,7 @@ do
     5)
       clear
       echo -e "\e[36mCambiando a PHP 7.3...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php7.3 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php7.3 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php7.3 /etc/alternatives/php;
       echo -e "\e[36mPHP 7.3 activo, hasta la próxima $USER\e[0m"
       exit
@@ -112,7 +113,7 @@ do
     6)
       clear
       echo -e "\e[36mCambiando a PHP 7.4...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php8.0 && sudo a2enmod php7.4 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2enmod php7.4 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php7.4 /etc/alternatives/php;
       echo -e "\e[36mPHP 7.4 activo, hasta la próxima $USER\e[0m"
       exit
@@ -121,9 +122,18 @@ do
     7)
       clear
       echo -e "\e[36mCambiando a PHP 8.0...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2enmod php8.0 && sudo /etc/init.d/apache2 restart;
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.1 && sudo a2enmod php8.0 && sudo /etc/init.d/apache2 restart;
       sudo ln -sfn /usr/bin/php8.0 /etc/alternatives/php;
       echo -e "\e[36mPHP 8.0 activo, hasta la próxima $USER\e[0m"
+      exit
+      ;;
+
+    8)
+      clear
+      echo -e "\e[36mCambiando a PHP 8.1...\e[0m"
+      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2enmod php8.1 && sudo /etc/init.d/apache2 restart;
+      sudo ln -sfn /usr/bin/php8.1 /etc/alternatives/php;
+      echo -e "\e[36mPHP 8.1 activo, hasta la próxima $USER\e[0m"
       exit
       ;;
 
