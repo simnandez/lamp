@@ -4,7 +4,7 @@
 _menu()
 {
   echo
-  echo -e "\e[36mLAMP Configurator Pro-Expert 2.3.0\e[0m"
+  echo -e "\e[36mLAMP Configurator Pro-Expert 8.2.0\e[0m"
   echo
   echo -e "\e[32mConfiguración actual:"
   php -r \@phpinfo\(\)\; | grep 'PHP Version' -m 1
