@@ -4,7 +4,7 @@
 _menu()
 {
   echo
-  echo -e "\e[36mLAMP Configurator Pro-Expert 8.3.0\e[0m"
+  echo -e "\e[36mLAMP Configurator Pro-Expert 8.3.1\e[0m"
   echo
   echo -e "\e[32mConfiguración actual:"
   php -r \@phpinfo\(\)\; | grep 'PHP Version' -m 1
@@ -46,7 +46,7 @@ do
     i|I)
       clear
       echo -e "\e[36mIniciando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 start && sudo /etc/init.d/mysql start;
+      sudo /etc/init.d/apache2 start && sudo /etc/init.d/mariadb start;
       echo -e "\e[36mLAMP iniciado, hasta la próxima $USER\e[0m"
       exit
       ;;
@@ -54,7 +54,7 @@ do
     p|P)
       clear
       echo -e "\e[36mParando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 stop && sudo /etc/init.d/mysql stop;
+      sudo /etc/init.d/apache2 stop && sudo /etc/init.d/mariadb stop;
       echo -e "\e[36mLAMP parado, hasta la próxima $USER\e[0m"
       exit
       ;;
@@ -62,7 +62,7 @@ do
     r|R)
       clear
       echo -e "\e[36mReiniciando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 restart && sudo /etc/init.d/mysql restart;
+      sudo /etc/init.d/apache2 restart && sudo /etc/init.d/mariadb restart;
       echo -e "\e[36mLAMP reiniciado, hasta la próxima $USER\e[0m"
       exit
       ;;
