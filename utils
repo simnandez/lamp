@@ -13,7 +13,7 @@ _menu()
   echo ""
   echo "Menú de opciones:"
   echo
-  echo " 1) Cambiar dueño:grupo (juanjo:www-data)"
+  echo " 1) Cambiar dueño:grupo (tienda:tienda)"
   echo " 2) Abrir directorios"
   echo " 3) Cerrar directorios"
   echo " 4) Abrir archivos"
@@ -22,6 +22,10 @@ _menu()
   echo " 7) Borrar archivos antiguos"
   echo " 8) Ver espacio usado"
   echo " 9) Buscar archivos mas grandes"
+  echo "10) Ver uso php-cgi"
+  echo "11) Ver conexiones web"
+  echo "12) Buscar cosas raras en access_log"
+  echo "13) Buscar bots en access_log"
   echo
   echo " 0) Salir"
   echo -e "\e[32m"
@@ -34,9 +38,9 @@ do
     1)
         clear
         echo -e "\e[36mCambiando dueño:grupo a directorios...\e[0m"
-        find ./ -type d | while read var1; do sudo chown juanjo:www-data "$var1"; done
+        find ./ -type d | while read var1; do sudo chown tienda:tienda "$var1"; done
         echo -e "\e[36mCambiando dueño:grupo a archivos...\e[0m"
-        find ./ -type f | while read var1; do sudo chown juanjo:www-data "$var1"; done
+        find ./ -type f | while read var1; do sudo chown tienda:tienda "$var1"; done
         echo -e "\e[36mDirectorios y archivos cambiados\e[0m"
         _menu
         ;;
@@ -98,6 +102,30 @@ do
       clear
       echo -e "\e[36mMostrando archivos mas grandes...\e[0m"
       sudo du -aBm ./ 2>/dev/null | sort -nr | head -n 10
+      _menu
+      ;;
+    10)
+      clear
+      echo -e "\e[36mVisualizando uso php-cgi...\e[0m"
+      ps aux | grep php-cgi
+      _menu
+     ;;
+    11)
+      clear
+      echo -e "\e[36mMostrando conexiones web...\e[0m"
+      netstat -putona |grep ':80'
+      _menu
+      ;;
+    12)
+      clear
+      echo -e "\e[36mMostrando cosas raras en access_log...\e[0m"
+      awk -F\" '$2 ~ /(SELECT|UNION|INSERT|UPDATE|DELETE)/ {print $1}' /home/tienda/logs/access_log | sort | uniq -c | sort -nr
+      _menu
+       ;;
+    13)
+      clear
+      echo -e "\e[36mMostrando cosas raras en access_log...\e[0m"
+      awk -F\" '{print $6}' /home/tienda/logs/access_log | sort | uniq -c | sort -k1nr | awk '!($1="")' | sed -n 1,500p > /home/tienda/logs/user-agents.txt
       _menu
       ;;
 
