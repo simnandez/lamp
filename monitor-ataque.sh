@@ -1,50 +1,160 @@
 #!/bin/bash
 
-# --- Definición de Colores ---
-VERDE='\033[0;32m'
-ROJO='\033[0;31m'
-AMARILLO='\033[1;33m'
-AZUL='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color (Reset)
+# --- Definición de Colores de Alto Contraste ---
+BG_AZUL='\033[44;37;1m'    # Fondo Azul, Letra Blanca
+BG_ROJO='\033[41;37;1m'    # Fondo Rojo, Letra Blanca
+BG_AMARILLO='\033[43;30m'   # Fondo Amarillo, Letra Negra
+BG_CYAN='\033[46;30m'     # Fondo Cyan, Letra Negra
+VERDE='\033[1;32m'        # Verde brillante
+CYAN='\033[1;36m'         # Cyan brillante
+BLANCO='\033[1;37m'       # Blanco puro
+AZUL='\033[1;34m'         # Azul brillante
+NC='\033[0m'              # Reset
 
 LOG_PATH="/home/tienda/logs/access_log"
 
+# --- FUNCIÓN: INSPECCIONAR IP ---
+inspect_ip() {
+    local target_ip=$1
+    echo -e "\n${BG_AMARILLO}  >>> INSPECCIONANDO ACTIVIDAD DE: $target_ip  ${NC}"
+    echo -e "${AZUL}Últimos 20 movimientos en el log:${NC}"
+    echo "---------------------------------------------------------------"
+    # Buscamos la IP y mostramos: Fecha, Método, URL y User-Agent
+    grep "$target_ip" "$LOG_PATH" | tail -n 20 | awk -F'"' '{print $1, $2, $6}'
+    echo "---------------------------------------------------------------"
+    echo -e "${CYAN}País:${NC} $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
+    echo -e "${AZUL}===============================================================${NC}"
+    read -p "Pulsa [Enter] para volver al menú..."
+}
+
+
+# --- MODO DESBANEO (Por parámetro) ---
+if [ "$1" == "unban" ]; then
+    if [ -z "$2" ]; then
+        echo -e "${BG_ROJO} ERROR: Indica la IP o Rango. Ejemplo: ./monitor.sh unban 1.2.3.4 ${NC}"
+        exit 1
+    fi
+    IP_TO_UNBAN=$2
+    echo -e "\n${BG_AMARILLO}  >>> OPERACIÓN DE DESBANEO: $IP_TO_UNBAN  ${NC}"
+
+    # Fail2Ban: Recorre todas las cárceles
+    JAILS=$(sudo fail2ban-client status | grep "Jail list" | sed "s/.*: \t//;s/,//g")
+    for jail in $JAILS; do
+        sudo fail2ban-client set $jail unbanip $IP_TO_UNBAN > /dev/null 2>&1
+        [ $? -eq 0 ] && echo -e "${VERDE}[Fail2Ban]${NC} Eliminado de: $jail"
+    done
+
+    # Iptables: Borra todas las coincidencias
+    while sudo iptables -D INPUT -s $IP_TO_UNBAN -j DROP 2>/dev/null; do
+        echo -e "${VERDE}[Iptables]${NC} Regla de bloqueo eliminada."
+    done
+    echo -e "${BG_AZUL}  PROCESO FINALIZADO  ${NC}\n"
+    exit 0
+fi
+
+# --- MENÚ DE INICIO ---
+if [ -z "$1" ]; then
+    clear
+    echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${AZUL}║${NC}       ${BLANCO}SISTEMA DE CONTROL DE ACCESO - AIRSOFT GANDIA${NC}         ${AZUL}║${NC}"
+    echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
+    echo -e " 1) ${CYAN}prestashop${NC} (Tienda)"
+    echo -e " 2) ${CYAN}prestashop-scraper${NC} (Buscador)"
+    echo -e " 3) ${CYAN}prestashop-proactive${NC} (No prestashop)"
+    echo -e " 4) ${CYAN}apache-badbots${NC} (Bots)"
+    echo -e " 5) ${CYAN}wordpress${NC}"
+    echo -e " 6) ${CYAN}postfix${NC} (Mail)"
+    echo -e " 7) ${CYAN}proftpd${NC} (FTP)"
+    echo -e " i) ${BG_AMARILLO}INSPECCIONAR IP ${NC}"
+    echo -e " u) ${BG_AMARILLO} DESBANEAR IP/RANGO ${NC}"
+    echo -e " s) Salir"
+    echo -e "${AZUL}--------------------------------------------------------------${NC}"
+    read -p " Selecciona opción: " opcion
+
+    case $opcion in
+        1) JAIL_NAME="prestashop" ;;
+        2) JAIL_NAME="prestashop-scraper" ;;
+        3) JAIL_NAME="prestashop-proactive" ;;
+        4) JAIL_NAME="apache-badbots" ;;
+        5) JAIL_NAME="wordpress" ;;
+        6) JAIL_NAME="postfix" ;;
+        7) JAIL_NAME="proftpd" ;;
+        i|I) read -p "Introduce IP a investigar: " IP_I; inspect_ip $IP_I; $0; exit 0 ;;
+        u|U) read -p "IP/Rango a desbanear: " IP_M; $0 unban $IP_M; exit 0 ;;
+        s|S) exit 0 ;;
+        *) exit 1 ;;
+    esac
+else
+    JAIL_NAME=$1
+fi
+
 clear
-echo -e "${AZUL}===============================================================${NC}"
-echo -e "${CYAN}   SUPERVISOR DE TRÁFICO GEO-LOCALIZADO - AIRSOFT GANDIA${NC}"
-echo -e "   $(date)"
-echo -e "${AZUL}===============================================================${NC}"
 
-echo -e "\n${AMARILLO}1. RESUMEN DE CARGA DEL SERVIDOR${NC}"
+  echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${AZUL}║${NC}       ${BLANCO}MONITOR DE SEGURIDAD AIRSOFT GANDIA${NC}                   ${AZUL}║${NC}"
+  echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
+
+
+# ===============================================================
+# SECCIÓN 1: CARGA DEL SISTEMA
+# ===============================================================
+echo -e "${BG_AZUL}  1. ESTADO GLOBAL DEL SERVIDOR                                ${NC}"
 LOAD=$(uptime | awk -F'load average:' '{ print $2 }')
-echo -e "Carga (1, 5, 15 min):${VERDE} $LOAD ${NC}"
-echo "---------------------------------------------------------------"
+echo -e " Carga CPU (1, 5, 15 min): ${VERDE}$LOAD${NC}"
+echo ""
 
-echo -e "\n${AMARILLO}2. TOP 10 IPs ACTIVAS + PAÍS (Últimas 5000 líneas)${NC}"
-echo -e "${AZUL} REQ.  |      IP        |   PAÍS${NC}"
-echo "---------------------------------------------------------------"
-
-tail -n 5000 $LOG_PATH | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
-    # Si tiene más de 500 peticiones lo marcamos en rojo (posible bot)
-    if [ "$count" -gt 500 ]; then COLOR_REQ=$ROJO; else COLOR_REQ=$VERDE; fi
-
-    pais=$(geoiplookup $ip | awk -F', ' '{print $2}' | cut -c1-20)
-
-    # Si el país no es Spain, lo avisamos en amarillo
-    if [[ "$pais" != *"Spain"* ]]; then COLOR_PAIS=$AMARILLO; else COLOR_PAIS=$NC; fi
-
-    printf "${COLOR_REQ}%-5s${NC}  | %-14s | ${COLOR_PAIS}%s${NC}\n" "$count" "$ip" "$pais"
+# ===============================================================
+# SECCIÓN 2: TRÁFICO EN TIEMPO REAL (LOGS)
+# ===============================================================
+echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE (Top 10 IPs en Logs)                     ${NC}"
+echo -e "${AZUL}  Peticiones |      IP       |   País${NC}"
+echo " --------------------------------------------------------------"
+tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
+    [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
+    pais=$(geoiplookup $ip 2>/dev/null | awk -F', ' '{print $2}' | cut -c1-20)
+    printf "  ${COL_REQ}%8s${NC}  | %-14s | %s\n" "$count" "$ip" "${pais:-Desconocido}"
 done
+echo ""
 
-echo "---------------------------------------------------------------"
+# ===============================================================
+# SECCIÓN 3: IPTABLES (MURO DE FUEGO)
+# ===============================================================
+echo -e "${BG_AZUL}  4. MURO MANUAL (Iptables DROP) - Por Agresividad             ${NC}"
+echo -e "${AZUL}   Paquetes  |      IP / RANGO     |   País${NC}"
+echo " --------------------------------------------------------------"
+LIST_DROP=$(sudo iptables -L INPUT -n -v | grep "DROP" | awk '{print $1, $8}' | sort -nr)
+if [ -z "$LIST_DROP" ]; then
+    echo -e " ${VERDE} Todo despejado. No hay bloqueos manuales.${NC}"
+else
+    echo "$LIST_DROP" | while read pkts source; do
+        [ "$pkts" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
+        IP_C=$(echo $source | cut -d'/' -f1)
+        pais=$(geoiplookup $IP_C 2>/dev/null | awk -F', ' '{print $2}' | cut -c1-20)
+        printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-Desconocido}"
+    done
+fi
+echo ""
 
-echo -e "\n${AMARILLO}3. ESTADO DEL MURO (Baneos trabajando)${NC}"
-# Solo mostramos reglas que realmente estén parando tráfico (> 0 paquetes)
-sudo iptables -L INPUT -n -v | grep DROP | awk '$1 > 0' | while read pkts bytes target prot opt in out source dest; do
-    printf "Bloqueados: ${ROJO}%-8s${NC} | Rango: ${CYAN}%s${NC}\n" "$pkts" "$source"
-done
+# ===============================================================
+# SECCIÓN 4: FAIL2BAN (CÁRCEL SELECCIONADA)
+# ===============================================================
+echo -e "${BG_AZUL}  3. MURO AUTOMÁTICO: ${BLANCO}${JAIL_NAME^^} ${NC}"
+F2B_STATS=$(sudo fail2ban-client status $JAIL_NAME 2>/dev/null)
+if [ $? -ne 0 ]; then
+    echo -e " ${BG_ROJO} ERROR: Muro no configurado ${NC}"
+else
+    B_NOW=$(echo "$F2B_STATS" | grep "Currently banned" | awk '{print $4}')
+    B_LIST=$(echo "$F2B_STATS" | grep "IP list" | cut -d: -f2)
+    [ "$B_NOW" -gt 0 ] && COL_B=${BG_ROJO} || COL_B=${VERDE}
+    echo -e " Actualmente baneados: ${COL_B} $B_NOW ${NC}"
+    [ "$B_NOW" -gt 0 ] && echo -e " Lista de IPs: ${CYAN}$B_LIST${NC}"
+fi
+echo ""
 
+# ===============================================================
+# SECCIÓN 5: BOTIQUÍN COMANDOS
+# ===============================================================
+echo -e "${BG_AMARILLO}  [!] BOTIQUÍN DE ACCIÓN RÁPIDA                                ${NC}"
+echo -e " ${BLANCO}DESBANEAR (Auto):${NC} sudo $0 unban ${CYAN}IP${NC}"
+echo -e " ${BLANCO}BANEAR (Manual): ${NC} sudo iptables -I INPUT -s ${CYAN}IP${NC} -j DROP"
 echo -e "${AZUL}===============================================================${NC}"
-echo -e "${AMARILLO}[BOTÓN DEL PÁNICO]${NC}"
-echo -e "Para banear un rango: ${ROJO}sudo iptables -I INPUT -s X.X.X.X/16 -j DROP${NC}"
