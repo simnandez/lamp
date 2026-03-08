@@ -156,40 +156,51 @@ while true; do
     # 4. FAIL2BAN
     echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
 
-    # Extraemos el estado de la jaula
-    JAIL_STATUS=$(sudo fail2ban-client status $JAIL_NAME)
+     # Extraemos el estado y el tiempo de baneo
+     JAIL_STATUS=$(sudo fail2ban-client status $JAIL_NAME)
+     BAN_TIME_SEC=$(sudo fail2ban-client get $JAIL_NAME bantime)
+     # Convertimos segundos a horas
+     BAN_TIME_HORAS=$(awk "BEGIN {print $BAN_TIME_SEC/3600}")
 
-    # 1. Sacamos el total de IPs baneadas
-    TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
+     # 1. Sacamos el total de IPs baneadas
+     TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
 
-    # 2. Procesamos la lista para sacar las últimas 10
-    LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
+     # 2. Procesamos la lista para sacar las últimas 10
+     LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
 
-    if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
-        echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
-    else
-        # Cabecera idéntica a tu ejemplo de IP Tables
-        echo -e "${AZUL}  Total IPs bloqueadas: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}"
-        echo -e "    ${AZUL}Estado    |         IP           |   País${NC}"
-        echo -e " ---------------------------------------------------------------"
+     if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
+         echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
+     else
+         # Cabecera con formato español
+         echo -e "${AZUL}  Total IPs bloqueadas: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Tiempo castigo: ${BAN_TIME_HORAS}h${NC}"
+         echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      |   País${NC}"
+         echo -e " ---------------------------------------------------------------"
 
-        # Listado en formato TABLA
-        while read -r ip; do
-            [ -z "$ip" ] && continue
+         # Listado en formato TABLA
+         while read -r ip; do
+             [ -z "$ip" ] && continue
 
-            # Obtenemos el nombre del país
-            PAIS_NOMBRE=$(geoiplookup "$ip" | awk -F', ' '{print $2}' | sed 's/IP Address not found/Desconocido/')
-            [ -z "$PAIS_NOMBRE" ] && PAIS_NOMBRE="Desconocido"
+             # 1. Buscamos la fecha y la convertimos a formato español (DD/MM/YYYY HH:MM:SS)
+             # Extraemos la línea del log, separamos la fecha por guiones y la reordenamos
+             FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
 
-            # Usamos printf para calcar el espaciado de tu ejemplo:
-            # Columna 1 (Paquetes): 10 espacios (ponemos "Baneada" o "---")
-            # Columna 2 (IP): 20 espacios
-            # Columna 3 (País): el resto
-            printf "   %10s | ${VERDE}%-20s${NC} | ${BLANCO}%s${NC}\n" "BANEADA" "$ip" "$PAIS_NOMBRE"
+             if [ -n "$FECHA_RAW" ]; then
+                 FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}')
+             else
+                 FECHA_ES="Antigua/Descon."
+             fi
 
-        done <<< "$LISTA_IPs"
-    fi
-    echo -e "${AZUL}---------------------------------------------------------------${NC}"
+             # 2. Obtenemos el nombre del país
+             PAIS_NOMBRE=$(geoiplookup "$ip" | awk -F', ' '{print $2}' | sed 's/IP Address not found/Desconocido/')
+             [ -z "$PAIS_NOMBRE" ] && PAIS_NOMBRE="Desconocido"
+
+             # 3. Imprimimos la fila alineada
+             # %-19s -> Espacio para "DD/MM/YYYY HH:MM:SS"
+             printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | ${BLANCO}%s${NC}\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE"
+
+         done <<< "$LISTA_IPs"
+     fi
+     echo -e "${AZUL}---------------------------------------------------------------${NC}"
 
     # 5. MENÚ VERTICAL
     echo -e "\n${BG_AMARILLO}  [!] MENU DE OPCIONES                                         ${NC}"
