@@ -15,14 +15,19 @@ LOG_PATH="/home/tienda/logs/access_log"
 # --- FUNCIÓN: INSPECCIONAR IP ---
 inspect_ip() {
     local target_ip=$1
-    echo -e "\n${BG_AMARILLO}  >>> INSPECCIONANDO ACTIVIDAD DE: $target_ip  ${NC}"
-    echo -e "${AZUL}Últimos 20 movimientos en el log:${NC}"
+    echo -e "\n${BG_AMARILLO}  >>> ANALIZANDO COMPORTAMIENTO: $target_ip  ${NC}"
+    echo -e "${AZUL}Mostrando últimas 100 acciones (rastreo de ráfagas):${NC}"
     echo "---------------------------------------------------------------"
-    grep "$target_ip" "$LOG_PATH" | tail -n 20 | awk -F'"' '{print $1, $2, $6}'
+
+    # Buscamos las últimas 100 entradas de esa IP
+    # Mostramos: Fecha/Hora | Método | URL | Respuesta
+    grep "$target_ip" "$LOG_PATH" | tail -n 100 | awk -F'"' '{print $1, $2, $3}'
+
     echo "---------------------------------------------------------------"
-    echo -e "${CYAN}País:${NC} $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
+    echo -e "${CYAN}Origen:${NC} $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
+    echo -e "${AZUL}Total de peticiones hoy:${NC} $(grep -c "$target_ip" "$LOG_PATH")"
     echo -e "${AZUL}===============================================================${NC}"
-    read -p "Pulsa [Enter] para volver..."
+    read -p "Pulsa [Enter] para volver al monitor..."
 }
 
 # --- FUNCIÓN: BANEO RÁPIDO ---
@@ -125,6 +130,8 @@ while true; do
 
     # 2. TRÁFICO
     echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE (Top 10 IPs en Logs)                     ${NC}"
+    echo -e "${AZUL}  Peticiones |      IP       |   País${NC}"
+    echo " --------------------------------------------------------------"
     tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
         [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
         pais=$(geoiplookup $ip 2>/dev/null | awk -F', ' '{print $2}' | cut -c1-20)
@@ -132,7 +139,9 @@ while true; do
     done
 
     # 3. IPTABLES (CON CORRECCIÓN K/M)
-   echo -e "\n${BG_AZUL}  4. MURO MANUAL (Iptables DROP)                               ${NC}"
+   echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables DROP)                               ${NC}"
+   echo -e "${AZUL}   Paquetes  |      IP / RANGO     |   País${NC}"
+   echo " --------------------------------------------------------------"
    # Usamos sort -hr para que entienda que 103K es mayor que 35212
    sudo iptables -L INPUT -n -v | grep "DROP" | awk '{print $1, $8}' | sort -hr | while read pkts source; do
        # Limpieza de letras para la lógica de color
@@ -144,29 +153,43 @@ while true; do
        printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-?}"
    done
 
-    # 4. FAIL2BAN (SECCIÓN 3 EN TU MONITOR) - CON LÓGICA DE COLORES E IPs INTELIGENTE
-    echo -e "\n${BG_AZUL}  3. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
+    # 4. FAIL2BAN
+    echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
 
-    # Extraemos el número de baneados actuales
-    F2B_STATS=$(sudo fail2ban-client status $JAIL_NAME 2>/dev/null)
-    B_NOW=$(echo "$F2B_STATS" | grep "Currently banned" | awk '{print $4}' | tr -d ' ')
+    # Extraemos el estado de la jaula
+    JAIL_STATUS=$(sudo fail2ban-client status $JAIL_NAME)
 
-    # Definimos el color según el número de baneados
-    if [ "${B_NOW:-0}" -eq 0 ]; then
-        COL_BANEADOS=${VERDE}
+    # 1. Sacamos el total de IPs baneadas
+    TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
+
+    # 2. Procesamos la lista para sacar las últimas 10
+    LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
+
+    if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
+        echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
     else
-        COL_BANEADOS=${BG_ROJO}
+        # Cabecera idéntica a tu ejemplo de IP Tables
+        echo -e "${AZUL}  Total IPs bloqueadas: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}"
+        echo -e "    ${AZUL}Estado    |         IP           |   País${NC}"
+        echo -e " ---------------------------------------------------------------"
+
+        # Listado en formato TABLA
+        while read -r ip; do
+            [ -z "$ip" ] && continue
+
+            # Obtenemos el nombre del país
+            PAIS_NOMBRE=$(geoiplookup "$ip" | awk -F', ' '{print $2}' | sed 's/IP Address not found/Desconocido/')
+            [ -z "$PAIS_NOMBRE" ] && PAIS_NOMBRE="Desconocido"
+
+            # Usamos printf para calcar el espaciado de tu ejemplo:
+            # Columna 1 (Paquetes): 10 espacios (ponemos "Baneada" o "---")
+            # Columna 2 (IP): 20 espacios
+            # Columna 3 (País): el resto
+            printf "   %10s | ${VERDE}%-20s${NC} | ${BLANCO}%s${NC}\n" "BANEADA" "$ip" "$PAIS_NOMBRE"
+
+        done <<< "$LISTA_IPs"
     fi
-
-    # Mostramos el contador con su color correspondiente
-    echo -e " Baneados ahora: ${COL_BANEADOS} ${B_NOW:-0} ${NC}"
-
-    # Extraemos la lista de IPs y solo la mostramos si no está vacía
-    B_LIST=$(echo "$F2B_STATS" | grep "IP list" | cut -d: -f2 | sed 's/^[ \t]*//')
-
-    if [ ! -z "$B_LIST" ]; then
-        echo -e " IPs: ${CYAN}$B_LIST${NC}"
-    fi
+    echo -e "${AZUL}---------------------------------------------------------------${NC}"
 
     # 5. MENÚ VERTICAL
     echo -e "\n${BG_AMARILLO}  [!] MENU DE OPCIONES                                         ${NC}"
