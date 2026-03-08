@@ -70,7 +70,7 @@ if [ "$1" == "unban" ]; then
     unban_ip $2; exit 0
 fi
 
-# --- MENÚ DE INICIO ORIGINAL (TUS 7 OPCIONES) ---
+# --- MENÚ DE INICIO ORIGINAL  ---
 if [ -z "$1" ]; then
     clear
     echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
@@ -78,7 +78,7 @@ if [ -z "$1" ]; then
     echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
     echo -e " 1) ${CYAN}prestashop${NC} (Abuso recursos/DoS)"
     echo -e " 2) ${CYAN}prestashop-scraper${NC} (Bots mudos/Scrapers)"
-    echo -e " 3) ${CYAN}prestashop-proactive${NC} (Hackers/Sploits)"
+    echo -e " 3) ${CYAN}prestashop-proactive${NC} (Hackers/Exploits)"
     echo -e " 4) ${CYAN}apache-badbots${NC} (Bots)"
     echo -e " 5) ${CYAN}wordpress${NC}"
     echo -e " 6) ${CYAN}postfix${NC} (Mail)"
@@ -109,7 +109,7 @@ while true; do
     echo -e "${AZUL}║${NC}       ${BLANCO}MONITOR DE SEGURIDAD AIRSOFT GANDIA${NC}                   ${AZUL}║${NC}"
     echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
 
-    # 1. CARGA (INTELIGENTE POR NÚMERO DE NÚCLEOS)
+    # 1. CARGA SERVIDOR (INTELIGENTE POR NÚMERO DE NÚCLEOS)
     echo -e "${BG_AZUL}  1. ESTADO GLOBAL DEL SERVIDOR                                ${NC}"
     N_CPUS=$(nproc)
     LOAD_STR=$(uptime | awk -F'load average:' '{ print $2 }')
