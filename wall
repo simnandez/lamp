@@ -11,6 +11,55 @@ AZUL='\033[1;34m'
 NC='\033[0m'
 
 LOG_PATH="/home/tienda/logs/access_log"
+# --- Configuración AbuseIPDB ---
+API_KEY="44ca76e72d5756fe20c2fcf06b20167b5a25b29ab79db622534f8cfaa648fa23a7fd381b5ce5fb6c"  # <--- PON TU KEY AQUÍ
+
+check_abuse() {
+    local ip=$1
+    local cache_file="/tmp/abuse_cache_${ip}.txt"
+    local now=$(date +%s)
+
+    # 1. Intentar leer de la caché si tiene menos de 1 hora (3600 seg)
+    if [ -f "$cache_file" ]; then
+        local cache_time=$(stat -c %Y "$cache_file")
+        if (( now - cache_time < 3600 )); then
+            cat "$cache_file"
+            return
+        fi
+    fi
+
+    # 2. Si no hay caché o es vieja, consultar API
+    local res=$(curl -s -G https://api.abuseipdb.com/api/v2/check \
+      --data-urlencode "ipAddress=$ip" \
+      -d maxAgeInDays=90 \
+      -H "Key: $API_KEY" \
+      -H "Accept: application/json")
+
+    # Verificar si hemos llegado al límite
+    if echo "$res" | grep -q "errors"; then
+        echo -e "${BG_ROJO} LIMIT EXCEEDED ${NC}" | tee "$cache_file"
+        return
+    fi
+
+    local score=$(echo "$res" | jq -r '.data.abuseConfidenceScore' 2>/dev/null)
+    local isp=$(echo "$res" | jq -r '.data.isp' 2>/dev/null | sed 's/null/Desconocido/' | cut -c1-12)
+
+    local output=""
+    if [[ "$score" == "null" || -z "$score" ]]; then
+        output="${AZUL}S: --${NC} | $isp"
+    else
+        local col_s=${VERDE}
+        [ "$score" -gt 20 ] && col_s=${CYAN}
+        [ "$score" -gt 50 ] && col_s=${BG_AMARILLO}
+        [ "$score" -gt 80 ] && col_s=${BG_ROJO}
+        output="${col_s}S:${score}%${NC}|$isp"
+    fi
+
+    # Guardar en caché y mostrar
+    echo -e "$output" > "$cache_file"
+    echo -e "$output"
+}
+
 
 # --- FUNCIÓN: INSPECCIONAR IP ---
 inspect_ip() {
@@ -128,15 +177,29 @@ while true; do
     fi
     echo -e " Núcleos: ${CYAN}$N_CPUS${NC} | Carga CPU: ${COL_LOAD}${LOAD_STR}${NC}\n"
 
-    # 2. TRÁFICO
-    echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE (Top 10 IPs en Logs)                     ${NC}"
-    echo -e "${AZUL}  Peticiones |      IP       |   País${NC}"
-    echo " --------------------------------------------------------------"
-    tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
-        [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
-        pais=$(geoiplookup $ip 2>/dev/null | awk -F', ' '{print $2}' | cut -c1-20)
-        printf "  ${COL_REQ}%8s${NC}  | %-14s | %s\n" "$count" "$ip" "${pais:-?}"
-    done
+     # 2. TRÁFICO
+     echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE + REPUTACIÓN (AbuseIPDB)                 ${NC}"
+     echo -e "${AZUL}  Pets |      IP       |       País         | Reputación / ISP${NC}"
+     echo " ----------------------------------------------------------------------------"
+
+     # Obtenemos el top 10
+     tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
+         # Color según volumen de peticiones
+         [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
+
+         # OBTENER PAÍS COMPLETO:
+         # geoiplookup devuelve algo como: GeoIP Country Edition: ES, Spain
+         # Usamos sed para limpiar "GeoIP Country Edition: XX, " y quedarnos con el resto
+         pais_completo=$(geoiplookup $ip 2>/dev/null | head -n 1 | sed 's/.*, //')
+         [ -z "$pais_completo" ] && pais_completo="Local/Desconocido"
+
+         # Consultamos reputación (AbuseIPDB)
+         reputacion=$(check_abuse $ip)
+
+         # Formato de tabla:
+         # %4s (Peticiones) | %-14s (IP) | %-18s (País Completo) | %b (Reputación)
+         printf "  ${COL_REQ}%4s${NC} | %-14s | %-18.18s | %b\n" "$count" "$ip" "$pais_completo" "$reputacion"
+     done
 
     # 3. IPTABLES (CON CORRECCIÓN K/M)
    echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables DROP)                               ${NC}"
@@ -153,53 +216,39 @@ while true; do
        printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-?}"
    done
 
-    # 4. FAIL2BAN
-    echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
+   # 4. FAIL2BAN
+   echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
 
-     # Extraemos el estado y el tiempo de baneo
-     JAIL_STATUS=$(sudo fail2ban-client status $JAIL_NAME)
-     BAN_TIME_SEC=$(sudo fail2ban-client get $JAIL_NAME bantime)
-     # Convertimos segundos a horas
-     BAN_TIME_HORAS=$(awk "BEGIN {print $BAN_TIME_SEC/3600}")
+   JAIL_STATUS=$(sudo fail2ban-client status "$JAIL_NAME")
+   TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
+   LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
 
-     # 1. Sacamos el total de IPs baneadas
-     TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
+   if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
+       echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
+   else
+       echo -e "${AZUL}  Total: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Mostrando últimas 10 con reputación:${NC}"
+       echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      | País / Reputación${NC}"
+       echo -e " ----------------------------------------------------------------------------"
 
-     # 2. Procesamos la lista para sacar las últimas 10
-     LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
+       while read -r ip; do
+           [ -z "$ip" ] && continue
 
-     if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
-         echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
-     else
-         # Cabecera con formato español
-         echo -e "${AZUL}  Total IPs bloqueadas: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Tiempo castigo: ${BAN_TIME_HORAS}h${NC}"
-         echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      |   País${NC}"
-         echo -e " ---------------------------------------------------------------"
+           # 1. Fecha en formato español
+           FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
+           [ -n "$FECHA_RAW" ] && FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}') || FECHA_ES="Antigua/Descon."
 
-         # Listado en formato TABLA
-         while read -r ip; do
-             [ -z "$ip" ] && continue
+           # 2. País completo
+           PAIS_NOMBRE=$(geoiplookup "$ip" | head -n 1 | sed 's/.*, //' | cut -c1-15)
+           [ -z "$PAIS_NOMBRE" ] || [[ "$PAIS_NOMBRE" == *"not found"* ]] && PAIS_NOMBRE="Desconocido"
 
-             # 1. Buscamos la fecha y la convertimos a formato español (DD/MM/YYYY HH:MM:SS)
-             # Extraemos la línea del log, separamos la fecha por guiones y la reordenamos
-             FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
+           # 3. Reputación AbuseIPDB (Llamada a la función que creamos antes)
+           REPUTACION=$(check_abuse "$ip")
 
-             if [ -n "$FECHA_RAW" ]; then
-                 FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}')
-             else
-                 FECHA_ES="Antigua/Descon."
-             fi
+           # 4. Impresión de la fila
+           printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | %-15s | %b\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE" "$REPUTACION"
 
-             # 2. Obtenemos el nombre del país
-             PAIS_NOMBRE=$(geoiplookup "$ip" | awk -F', ' '{print $2}' | sed 's/IP Address not found/Desconocido/')
-             [ -z "$PAIS_NOMBRE" ] && PAIS_NOMBRE="Desconocido"
-
-             # 3. Imprimimos la fila alineada
-             # %-19s -> Espacio para "DD/MM/YYYY HH:MM:SS"
-             printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | ${BLANCO}%s${NC}\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE"
-
-         done <<< "$LISTA_IPs"
-     fi
+       done <<< "$LISTA_IPs"
+   fi
      echo -e "${AZUL}---------------------------------------------------------------${NC}"
 
     # 5. MENÚ VERTICAL
