@@ -9,17 +9,18 @@ CYAN='\033[1;36m'
 BLANCO='\033[1;37m'
 AZUL='\033[1;34m'
 NC='\033[0m'
+C_GRAY='\033[0;90m'
 
 LOG_PATH="/home/tienda/logs/access_log"
 # --- Configuración AbuseIPDB ---
-API_KEY="44ca76e72d5756fe20c2fcf06b20167b5a25b29ab79db622534f8cfaa648fa23a7fd381b5ce5fb6c"  # <--- PON TU KEY AQUÍ
+API_KEY="44ca76e72d5756fe20c2fcf06b20167b5a25b29ab79db622534f8cfaa648fa23a7fd381b5ce5fb6c"
 
+# --- FUNCIÓN: CONSULTA ABUSEIPDB (CON CACHÉ Y ALINEACIÓN) ---
 check_abuse() {
     local ip=$1
     local cache_file="/tmp/abuse_cache_${ip}.txt"
     local now=$(date +%s)
 
-    # 1. Intentar leer de la caché si tiene menos de 1 hora (3600 seg)
     if [ -f "$cache_file" ]; then
         local cache_time=$(stat -c %Y "$cache_file")
         if (( now - cache_time < 3600 )); then
@@ -28,16 +29,14 @@ check_abuse() {
         fi
     fi
 
-    # 2. Si no hay caché o es vieja, consultar API
     local res=$(curl -s -G https://api.abuseipdb.com/api/v2/check \
       --data-urlencode "ipAddress=$ip" \
       -d maxAgeInDays=90 \
       -H "Key: $API_KEY" \
       -H "Accept: application/json")
 
-    # Verificar si hemos llegado al límite
     if echo "$res" | grep -q "errors"; then
-        echo -e "${BG_ROJO} LIMIT EXCEEDED ${NC}" | tee "$cache_file"
+        echo -e "${BG_ROJO} LIMIT ERR ${NC} | Desconocido" | tee "$cache_file"
         return
     fi
 
@@ -46,36 +45,68 @@ check_abuse() {
 
     local output=""
     if [[ "$score" == "null" || -z "$score" ]]; then
-        output="${AZUL}S: --${NC} | $isp"
+        output="${AZUL}S:--%${NC}|$isp"
     else
         local col_s=${VERDE}
         [ "$score" -gt 20 ] && col_s=${CYAN}
         [ "$score" -gt 50 ] && col_s=${BG_AMARILLO}
         [ "$score" -gt 80 ] && col_s=${BG_ROJO}
+
+        # Eliminamos el printf "%3s" para que no añada espacios de relleno
         output="${col_s}S:${score}%${NC}|$isp"
     fi
 
-    # Guardar en caché y mostrar
     echo -e "$output" > "$cache_file"
     echo -e "$output"
 }
 
-
-# --- FUNCIÓN: INSPECCIONAR IP ---
+# --- FUNCIÓN: INSPECCIONAR IP (FILTRADO VISUAL JS/IMG) ---
 inspect_ip() {
     local target_ip=$1
     echo -e "\n${BG_AMARILLO}  >>> ANALIZANDO COMPORTAMIENTO: $target_ip  ${NC}"
-    echo -e "${AZUL}Mostrando últimas 100 acciones (rastreo de ráfagas):${NC}"
-    echo "---------------------------------------------------------------"
+    echo -e "${AZUL}Colores: ${C_GRAY}Gris=Estáticos${NC} | ${BLANCO}Blanco=Páginas/Scripts${NC}"
+    echo "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
 
-    # Buscamos las últimas 100 entradas de esa IP
-    # Mostramos: Fecha/Hora | Método | URL | Respuesta
-    grep "$target_ip" "$LOG_PATH" | tail -n 100 | awk -F'"' '{print $1, $2, $3}'
+    # ENCABEZADO DE COLUMNAS
+    printf "${AZUL}%-15s | %-8s | %-5s | %-60s | %-3s | %s${NC}\n" "IP" "HORA" "MET." "URL" "COD" "USER-AGENT (Navegador/Bot)"
+    echo "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
 
-    echo "---------------------------------------------------------------"
-    echo -e "${CYAN}Origen:${NC} $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
-    echo -e "${AZUL}Total de peticiones hoy:${NC} $(grep -c "$target_ip" "$LOG_PATH")"
-    echo -e "${AZUL}===============================================================${NC}"
+    # Procesamos el log:
+    grep "$target_ip" "$LOG_PATH" | tail -n 100 | awk -F'"' '{
+        # Extraer IP y Hora de la primera parte del log
+        split($1, p, " ");
+        ip=p[1];
+        match($1, /[0-9]{2}:[0-9]{2}:[0-9]{2}/); hora=substr($1, RSTART, RLENGTH);
+
+        # Extraer Método y URL de la petición
+        split($2, r, " ");
+        metodo=r[1]; url=r[2];
+
+        # Extraer Código de estado
+        split($3, s, " ");
+        codigo=s[1];
+
+        # User Agent (sexto campo entre comillas)
+        ua=$6;
+
+        # Lógica de colores para URL
+        C_GRAY="\033[0;90m"; C_WHITE="\033[1;37m"; C_CYAN="\033[1;36m"; C_NC="\033[0m"; C_RED="\033[1;31m"; C_GREEN="\033[1;32m";
+        color_url=C_WHITE;
+        if (url ~ /\.(jpg|jpeg|png|gif|css|js|ico|woff|svg)$/) color_url=C_GRAY;
+
+        # Color para el código de estado (Rojo si es error)
+        col_code=C_GREEN;
+        if (codigo >= 400) col_code=C_RED;
+
+        # Imprimir fila alineada
+        printf "%-15s | %-8s | %s%-5s%s | %s%-60.60s%s | %s%-3s%s | %s\n", ip, hora, C_CYAN, metodo, C_NC, color_url, url, C_NC, col_code, codigo, C_NC, ua
+    }'
+
+    echo "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+    echo -e "${CYAN}Reputación:${NC} $(check_abuse $target_ip)"
+    echo -e "${CYAN}Origen:${NC}      $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
+    echo -e "${AZUL}Total hoy:${NC}   $(grep -c "$target_ip" "$LOG_PATH") peticiones"
+    echo -e "${AZUL}==========================================================================================================================================================================${NC}"
     read -p "Pulsa [Enter] para volver al monitor..."
 }
 
@@ -119,7 +150,7 @@ if [ "$1" == "unban" ]; then
     unban_ip $2; exit 0
 fi
 
-# --- MENÚ DE INICIO ORIGINAL  ---
+# --- MENÚ DE INICIO ---
 if [ -z "$1" ]; then
     clear
     echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
@@ -134,7 +165,6 @@ if [ -z "$1" ]; then
     echo -e " 7) ${CYAN}proftpd${NC} (FTP)"
     echo -e "${AZUL}--------------------------------------------------------------${NC}"
     read -p " Selecciona Jail2Ban a mostrar: " opcion
-
     case $opcion in
         1) JAIL_NAME="prestashop" ;;
         2) JAIL_NAME="prestashop-scraper" ;;
@@ -154,113 +184,81 @@ fi
 # ===============================================================
 while true; do
     clear
-    echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${AZUL}║${NC}       ${BLANCO}MONITOR DE SEGURIDAD AIRSOFT GANDIA${NC}                   ${AZUL}║${NC}"
-    echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${AZUL}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${AZUL}║${NC}       ${BLANCO}MONITOR DE SEGURIDAD AIRSOFT GANDIA${NC}                                    ${AZUL}║${NC}"
+    echo -e "${AZUL}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
 
-    # 1. CARGA SERVIDOR (INTELIGENTE POR NÚMERO DE NÚCLEOS)
-    echo -e "${BG_AZUL}  1. ESTADO GLOBAL DEL SERVIDOR                                ${NC}"
+    # 1. ESTADO GLOBAL
+    echo -e "${BG_AZUL}  1. ESTADO GLOBAL DEL SERVIDOR                                                 ${NC}"
     N_CPUS=$(nproc)
     LOAD_STR=$(uptime | awk -F'load average:' '{ print $2 }')
     LOAD_1MIN=$(echo $LOAD_STR | awk -F',' '{print $1}' | tr -d ' ')
-
-    # Umbrales: Verde < 70%, Amarillo < 100%, Rojo > 100% de capacidad
     UMBRAL_OK=$(echo "$N_CPUS * 0.7" | bc)
     UMBRAL_WARN=$(echo "$N_CPUS * 1.0" | bc)
-
-    if (( $(echo "$LOAD_1MIN < $UMBRAL_OK" | bc -l) )); then
-        COL_LOAD=${VERDE}
-    elif (( $(echo "$LOAD_1MIN < $UMBRAL_WARN" | bc -l) )); then
-        COL_LOAD=${BG_AMARILLO}
-    else
-        COL_LOAD=${BG_ROJO}
-    fi
+    if (( $(echo "$LOAD_1MIN < $UMBRAL_OK" | bc -l) )); then COL_LOAD=${VERDE}
+    elif (( $(echo "$LOAD_1MIN < $UMBRAL_WARN" | bc -l) )); then COL_LOAD=${BG_AMARILLO}
+    else COL_LOAD=${BG_ROJO}; fi
     echo -e " Núcleos: ${CYAN}$N_CPUS${NC} | Carga CPU: ${COL_LOAD}${LOAD_STR}${NC}\n"
 
-     # 2. TRÁFICO
-     echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE + REPUTACIÓN (AbuseIPDB)                 ${NC}"
-     echo -e "${AZUL}  Pets |      IP       |       País         | Reputación / ISP${NC}"
-     echo " ----------------------------------------------------------------------------"
+    # 2. TRÁFICO RECIENTE
+    echo -e "${BG_AZUL}  2. TRÁFICO RECIENTE + REPUTACIÓN (AbuseIPDB)                                  ${NC}"
+    echo -e "${AZUL}  Pets |      IP       |       País         | Reputación / ISP${NC}"
+    echo " ------------------------------------------------------------------------------"
+    tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
+        [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
+        pais_completo=$(geoiplookup $ip 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-18)
+        [ -z "$pais_completo" ] && pais_completo="Local/Desconocido"
+        reputacion=$(check_abuse $ip)
+        printf "  ${COL_REQ}%4s${NC} | %-14s | %-18s | %b\n" "$count" "$ip" "$pais_completo" "$reputacion"
+    done
 
-     # Obtenemos el top 10
-     tail -n 5000 $LOG_PATH 2>/dev/null | awk '{print $1}' | sort | uniq -c | sort -nr | head -n 10 | while read count ip; do
-         # Color según volumen de peticiones
-         [ "$count" -gt 500 ] && COL_REQ=${BG_ROJO} || COL_REQ=${VERDE}
+    # 3. IPTABLES
+    echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables DROP)                                                ${NC}"
+    echo -e "${AZUL}   Paquetes  |      IP / RANGO     |   País${NC}"
+    echo " ------------------------------------------------------------------------------"
+    sudo iptables -L INPUT -n -v | grep "DROP" | awk '{print $1, $8}' | sort -hr | while read pkts source; do
+        pkts_clean=$(echo $pkts | sed 's/[a-zA-Z]//g' | cut -d'.' -f1)
+        [ "${pkts_clean:-0}" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
+        IP_C=$(echo $source | cut -d'/' -f1)
+        pais=$(geoiplookup $IP_C 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-20)
+        printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-?}"
+    done
 
-         # OBTENER PAÍS COMPLETO:
-         # geoiplookup devuelve algo como: GeoIP Country Edition: ES, Spain
-         # Usamos sed para limpiar "GeoIP Country Edition: XX, " y quedarnos con el resto
-         pais_completo=$(geoiplookup $ip 2>/dev/null | head -n 1 | sed 's/.*, //')
-         [ -z "$pais_completo" ] && pais_completo="Local/Desconocido"
+    # 4. FAIL2BAN
+    echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^}                     ${NC}"
+    JAIL_STATUS=$(sudo fail2ban-client status $JAIL_NAME)
+    BAN_TIME_SEC=$(sudo fail2ban-client get $JAIL_NAME bantime)
+    BAN_TIME_HORAS=$(awk "BEGIN {print $BAN_TIME_SEC/3600}")
+    TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
+    LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
 
-         # Consultamos reputación (AbuseIPDB)
-         reputacion=$(check_abuse $ip)
-
-         # Formato de tabla:
-         # %4s (Peticiones) | %-14s (IP) | %-18s (País Completo) | %b (Reputación)
-         printf "  ${COL_REQ}%4s${NC} | %-14s | %-18.18s | %b\n" "$count" "$ip" "$pais_completo" "$reputacion"
-     done
-
-    # 3. IPTABLES (CON CORRECCIÓN K/M)
-   echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables DROP)                               ${NC}"
-   echo -e "${AZUL}   Paquetes  |      IP / RANGO     |   País${NC}"
-   echo " --------------------------------------------------------------"
-   # Usamos sort -hr para que entienda que 103K es mayor que 35212
-   sudo iptables -L INPUT -n -v | grep "DROP" | awk '{print $1, $8}' | sort -hr | while read pkts source; do
-       # Limpieza de letras para la lógica de color
-       pkts_clean=$(echo $pkts | sed 's/[a-zA-Z]//g' | cut -d'.' -f1)
-       [ "${pkts_clean:-0}" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
-
-       IP_C=$(echo $source | cut -d'/' -f1)
-       pais=$(geoiplookup $IP_C 2>/dev/null | awk -F', ' '{print $2}' | cut -c1-20)
-       printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-?}"
-   done
-
-   # 4. FAIL2BAN
-   echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^} ${NC}"
-
-   JAIL_STATUS=$(sudo fail2ban-client status "$JAIL_NAME")
-   TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
-   LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
-
-   if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
-       echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
-   else
-       echo -e "${AZUL}  Total: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Mostrando últimas 10 con reputación:${NC}"
-       echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      | País / Reputación${NC}"
-       echo -e " ----------------------------------------------------------------------------"
-
-       while read -r ip; do
-           [ -z "$ip" ] && continue
-
-           # 1. Fecha en formato español
-           FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
-           [ -n "$FECHA_RAW" ] && FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}') || FECHA_ES="Antigua/Descon."
-
-           # 2. País completo
-           PAIS_NOMBRE=$(geoiplookup "$ip" | head -n 1 | sed 's/.*, //' | cut -c1-15)
-           [ -z "$PAIS_NOMBRE" ] || [[ "$PAIS_NOMBRE" == *"not found"* ]] && PAIS_NOMBRE="Desconocido"
-
-           # 3. Reputación AbuseIPDB (Llamada a la función que creamos antes)
-           REPUTACION=$(check_abuse "$ip")
-
-           # 4. Impresión de la fila
-           printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | %-15s | %b\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE" "$REPUTACION"
-
-       done <<< "$LISTA_IPs"
-   fi
-     echo -e "${AZUL}---------------------------------------------------------------${NC}"
+    if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
+        echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
+    else
+        echo -e "${AZUL}  Total: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Tiempo castigo: ${BAN_TIME_HORAS}h | Últimos 10:${NC}"
+        echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      | País / Reputación${NC}"
+        echo -e " ------------------------------------------------------------------------------"
+        while read -r ip; do
+            [ -z "$ip" ] && continue
+            FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
+            [ -n "$FECHA_RAW" ] && FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}') || FECHA_ES="Antigua/Descon."
+            PAIS_NOMBRE=$(geoiplookup "$ip" | head -n 1 | sed 's/.*, //' | cut -c1-15)
+            REPUTACION=$(check_abuse "$ip")
+            printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | %-15s | %b\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE" "$REPUTACION"
+        done <<< "$LISTA_IPs"
+    fi
+    echo -e "${AZUL}------------------------------------------------------------------------------${NC}"
 
     # 5. MENÚ VERTICAL
-    echo -e "\n${BG_AMARILLO}  [!] MENU DE OPCIONES                                         ${NC}"
+    echo -e "\n${BG_AMARILLO}  [!] MENU DE OPCIONES                                                        ${NC}"
     echo -e "  (${CYAN}I${NC}) Inspeccionar IP"
     echo -e "  (${BG_ROJO}B${NC}) Banear IP/Rango"
     echo -e "  (${CYAN}U${NC}) Desbanear IP/Rango"
     echo -e "  (${VERDE}R${NC}) Refrescar"
     echo -e "  (${BLANCO}S${NC}) Salir"
-    echo -e "${AZUL}===============================================================${NC}"
+    echo -e "${AZUL}==============================================================================${NC}"
 
-    read -n 1 -p " Seleccia una opción: " accion
+    read -n 1 -p " Selecciona una opción: " accion
     case $accion in
         i|I) echo ""; read -p " IP: " IP_I; inspect_ip $IP_I ;;
         b|B) ban_ip_manual ;;
