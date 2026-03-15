@@ -72,7 +72,9 @@ inspect_ip() {
     grep "$target_ip" "$LOG_PATH" | tail -n 100
 
     echo "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+    echo -e "${CYAN}Resolución DNS:${NC} $(nslookup $target_ip | grep 'name =' | awk '{print $4}' || echo 'No disponible')"
     echo -e "${CYAN}Reputación:${NC} $(check_abuse $target_ip)"
+    echo -e "${CYAN}Origen:${NC}      $(geoiplookup $target_ip 2>/dev/null | awk -F', ' '{print $2}')"
     echo -e "${AZUL}Total hoy:${NC}   $(grep -c "$target_ip" "$LOG_PATH") peticiones"
     echo -e "${AZUL}==========================================================================================================================================================================${NC}"
     read -p "Pulsa [Enter] para volver..."
