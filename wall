@@ -123,16 +123,50 @@ fi
 # --- MENÚ DE INICIO ---
 if [ -z "$1" ]; then
     clear
+    echo -e "${AZUL} Cargando estadísticas de seguridad...${NC}"
+
+    # Función corregida para alineación matemática exacta
+    get_stats() {
+        local count=$(sudo fail2ban-client status "$1" 2>/dev/null | grep "Currently banned:" | awk '{print $4}')
+        count=${count:-0}
+
+        # Forzamos que el número siempre ocupe 3 espacios
+        local num_formateado=$(printf "%3s" "$count")
+        local label="IPs baneadas: "
+
+        if [ "$count" -gt 0 ]; then
+            # Espacio + Número (Total 4 caracteres de ancho visual)
+            echo -e "${label}${BG_ROJO} ${num_formateado}${NC}"
+        else
+            # Espacio + Número (Total 4 caracteres de ancho visual para igualar al ROJO)
+            echo -e "${label}${BLANCO} ${num_formateado}${NC}"
+        fi
+    }
+
+    # Pre-carga de datos
+    STAT_PS=$(get_stats "prestashop")
+    STAT_SC=$(get_stats "prestashop-scraper")
+    STAT_PR=$(get_stats "prestashop-proactive")
+    STAT_AB=$(get_stats "apache-badbots")
+    STAT_WP=$(get_stats "wordpress")
+    STAT_PX=$(get_stats "postfix")
+    STAT_FT=$(get_stats "proftpd")
+
+    clear
     echo -e "${AZUL}╔═════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${AZUL}║${NC}       ${BLANCO}SISTEMA DE CONTROL DE ACCESO - AIRSOFT GANDIA${NC}         ${AZUL}║${NC}"
     echo -e "${AZUL}╚═════════════════════════════════════════════════════════════╝${NC}"
-    echo -e " 1) ${CYAN}prestashop${NC} (Abuso recursos/DoS)"
-    echo -e " 2) ${CYAN}prestashop-scraper${NC} (Bots mudos/Scrapers)"
-    echo -e " 3) ${CYAN}prestashop-proactive${NC} (Hackers/Exploits)"
-    echo -e " 4) ${CYAN}apache-badbots${NC} (Bots)"
-    echo -e " 5) ${CYAN}wordpress${NC}"
-    echo -e " 6) ${CYAN}postfix${NC} (Mail)"
-    echo -e " 7) ${CYAN}proftpd${NC} (FTP)"
+
+    # Usamos %b para procesar los colores y ajustamos el margen a 42
+    # La suma de caracteres visuales ahora es constante: 42 (izq) + 18 (der) = 60
+    printf " 1) ${CYAN}%-38s${NC} %b\n" "prestashop (abuso)" "$STAT_PS"
+    printf " 2) ${CYAN}%-38s${NC} %b\n" "prestashop-scraper (bots)" "$STAT_SC"
+    printf " 3) ${CYAN}%-38s${NC} %b\n" "prestashop-proactive (hackers)" "$STAT_PR"
+    printf " 4) ${CYAN}%-38s${NC} %b\n" "apache-badbots (badbots)" "$STAT_AB"
+    printf " 5) ${CYAN}%-38s${NC} %b\n" "wordpress (wp-login)" "$STAT_WP"
+    printf " 6) ${CYAN}%-38s${NC} %b\n" "postfix (mail)" "$STAT_PX"
+    printf " 7) ${CYAN}%-38s${NC} %b\n" "proftpd (FTP)" "$STAT_FT"
+
     echo -e "${AZUL}--------------------------------------------------------------${NC}"
     read -p " Selecciona Jail2Ban a mostrar: " opcion
     case $opcion in
@@ -200,18 +234,25 @@ while true; do
     BAN_TIME_SEC=$(sudo fail2ban-client get $JAIL_NAME bantime)
     BAN_TIME_HORAS=$(awk "BEGIN {print $BAN_TIME_SEC/3600}")
     TOTAL_BAN=$(echo "$JAIL_STATUS" | grep "Currently banned:" | awk '{print $4}')
-    LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10)
+    LISTA_IPs=$(echo "$JAIL_STATUS" | grep "IP list" | sed 's/.*IP list:[[:space:]]*//' | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | tail -n 10 | tac)
 
     if [ -z "$LISTA_IPs" ] || [ "$TOTAL_BAN" -eq 0 ]; then
         echo -e "${AZUL}  Total IPs bloqueadas: 0${NC}"
     else
-        echo -e "${AZUL}  Total: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Tiempo castigo: ${BAN_TIME_HORAS}h | Últimos 10:${NC}"
+        echo -e "${AZUL}  Total: ${BG_ROJO}${BLANCO}${TOTAL_BAN}${NC}${AZUL} | Tiempo castigo: ${BAN_TIME_HORAS}h | Mostramos últimas 10${NC}"
         echo -e "  ${AZUL} Fecha / Hora       |      IP / RANGO      | País / Reputación${NC}"
         echo -e " ------------------------------------------------------------------------------"
         while read -r ip; do
             [ -z "$ip" ] && continue
+            # Buscamos la fecha del baneo en el log
             FECHA_RAW=$(grep "Ban $ip" /var/log/fail2ban.log | tail -n 1 | awk '{print $1" "$2}' | cut -d',' -f1)
-            [ -n "$FECHA_RAW" ] && FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}') || FECHA_ES="Antigua/Descon."
+
+            if [ -n "$FECHA_RAW" ]; then
+                 FECHA_ES=$(echo "$FECHA_RAW" | awk -F'[- ]' '{print $3"/"$2"/"$1" "$4}')
+            else
+                 FECHA_ES="Antigua/Descon."
+            fi
+
             PAIS_NOMBRE=$(geoiplookup "$ip" | head -n 1 | sed 's/.*, //' | cut -c1-15)
             REPUTACION=$(check_abuse "$ip")
             printf "  ${BLANCO}%-19s${NC} | ${VERDE}%-20s${NC} | %-15s | %b\n" "$FECHA_ES" "$ip" "$PAIS_NOMBRE" "$REPUTACION"
