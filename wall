@@ -238,6 +238,7 @@ while true; do
     echo -e "  (${CYAN}I${NC}) Inspeccionar IP"
     echo -e "  (${BG_ROJO}B${NC}) Banear IP/Rango"
     echo -e "  (${CYAN}U${NC}) Desbanear IP/Rango"
+    echo -e "  (${VERDE}G${NC}) Actualizar IPs de Google"
     echo -e "  (${AZUL}M${NC}) Seleccionar otro Jail2Ban"
     echo -e "  (${VERDE}R${NC}) Refrescar"
     echo -e "  (${BLANCO}S${NC}) Salir"
@@ -248,6 +249,7 @@ while true; do
         i|I) echo ""; read -p " IP: " IP_I; inspect_ip $IP_I ;;
         b|B) ban_ip_manual ;;
         u|U) echo ""; read -p " IP: " IP_U; unban_ip $IP_U ;;
+        g|G) echo -e "\n${AZUL} Ejecutando actualización de IPs de Google...${NC}"; update_google_ips.sh; read -p "Pulsa [Enter] para continuar..." ;;
         m|M) unset JAIL_NAME ;;
         r|R) continue ;;
         s|S) clear; exit 0 ;;
