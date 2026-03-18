@@ -1,209 +1,150 @@
 #!/bin/bash
 
-# Muestra el menu general
-_menu()
-{
-  echo
-  echo -e "\e[36mLAMP Configurator Pro-Expert 8.4.0\e[0m"
-  echo
-  echo -e "\e[32mConfiguración actual:"
-  php -r \@phpinfo\(\)\; | grep 'PHP Version' -m 1
-  if [ -f /etc/mysql/conf.d/enable_strict_mode.cnf ];
-  then
-    echo -e "MySQL StrictMode => ACTIVADO\e[0m"
-  else
-    echo -e "MySQL StrictMode => DESACTIVADO\e[0m"
-  fi
-  echo ""
-  echo "Menú de opciones:"
-  echo
-  echo "I) Iniciar LAMP"
-  echo "P) Parar LAMP"
-  echo "R) Reiniciar LAMP"
-  echo
-  echo "A) Activar MySQL StrictMode"
-  echo "D) Desactivar MySQL StrictMode"
-  echo
-  echo " 1) Cambiar a PHP 5.6"
-  echo " 2) Cambiar a PHP 7.0"
-  echo " 3) Cambiar a PHP 7.1"
-  echo " 4) Cambiar a PHP 7.2"
-  echo " 5) Cambiar a PHP 7.3"
-  echo " 6) Cambiar a PHP 7.4"
-  echo " 7) Cambiar a PHP 8.0"
-  echo " 8) Cambiar a PHP 8.1"
-  echo " 9) Cambiar a PHP 8.2"
-  echo "10) Cambiar a PHP 8.3"
-  echo "11) Cambiar a PHP 8.4"
-  echo "12) Cambiar a PHP 8.5"
-  echo
-  echo "0) Salir"
-  echo -e "\e[32m"
-  echo -n "Indica una opción: "
+# --- Configuración ---
+VERSIONES_PHP=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
+STRICT_MODE_FILE="/etc/mysql/conf.d/enable_strict_mode.cnf"
+STRICT_MODE_BACKUP="/etc/mysql/conf.d/enable_strict_mode.cnf.back"
+
+# Colores y Estilos
+BOLD='\e[1m'
+CYAN='\e[36m'
+GREEN='\e[32m'
+YELLOW='\e[33m'
+RED='\e[31m'
+MAGENTA='\e[35m'
+NC='\e[0m' # No Color
+
+# --- Funciones de Interfaz ---
+
+_pausa() {
+    echo -e "\n  ${MAGENTA}➔${NC} Presiona cualquier tecla para volver al menú..."
+    read -n 1 -s -r
 }
+
+_progreso() {
+    local pid=$1
+    local mensaje=$2
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    echo -ne "  ${YELLOW}$mensaje${NC}  "
+    while kill -0 $pid 2>/dev/null; do
+        for i in {0..9}; do
+            echo -ne "\b${spin:$i:1}"
+            sleep 0.1
+        done
+    done
+    wait $pid
+    if [ $? -eq 0 ]; then
+        echo -e "\b${GREEN}✔ Finalizado con éxito${NC}"
+    else
+        echo -e "\b${RED}✘ Hubo un error${NC}"
+    fi
+}
+
+_info_actual() {
+    # Tomamos la versión y cortamos todo lo que venga después del primer '+' o '~'
+    # para que quede solo la versión base: 7.1.33...
+    local php_raw=$(php -v 2>/dev/null | head -n 1 | cut -d " " -f 2)
+    local php_v=$(echo "$php_raw" | cut -d "+" -f 1 | cut -d "~" -f 1)
+
+    echo -e "  ┌──────────────────────────────────────────────────┐"
+    echo -e "    ${BOLD}ESTADO DEL SISTEMA${NC}"
+    echo -e "    ${CYAN}🐘 PHP Version:${NC}  ${php_v:-"No instalado"}"
+
+    if [ -f "$STRICT_MODE_FILE" ]; then
+        echo -e "    ${CYAN}🐬 MySQL Strict:${NC} ${GREEN}● ACTIVADO${NC}"
+    else
+        echo -e "    ${CYAN}🐬 MySQL Strict:${NC} ${RED}○ DESACTIVADO${NC}"
+    fi
+    echo -e "  └──────────────────────────────────────────────────┘"
+}
+
+
+# --- Funciones de Lógica ---
+
+_cambiar_php() {
+    local v=$1
+    (
+        current_mods=$(ls /etc/apache2/mods-enabled/php*.load 2>/dev/null | xargs -n1 basename | sed 's/.load//')
+        for mod in $current_mods; do sudo a2dismod "$mod" >/dev/null 2>&1; done
+        sudo a2enmod "php$v" >/dev/null 2>&1
+        sudo ln -sfn "/usr/bin/php$v" /etc/alternatives/php
+        sudo systemctl restart apache2
+    ) &
+    _progreso $! "Configurando PHP $v y reiniciando Apache"
+}
+
+_gestion_servicio() {
+    sudo systemctl $1 $2 &
+    _progreso $! "$3"
+}
+
+# --- Menú ---
+
+_menu() {
+    clear
+    echo -e "\n  ${BOLD}${MAGENTA}🚀 LAMP CONFIGURATOR PRO-EXPERT 8.5${NC}"
+    echo -e "  ${CYAN}——————————————————————————————————————————————————${NC}"
+    _info_actual
+
+    echo -e "\n  ${BOLD}⚡ GESTIÓN DE SERVICIOS${NC}"
+    echo -e "  ${CYAN}[I]${NC} Iniciar LAMP      ${CYAN}[A]${NC} Activar MySQL Strict"
+    echo -e "  ${CYAN}[P]${NC} Parar LAMP        ${CYAN}[D]${NC} Desactivar MySQL Strict"
+    echo -e "  ${CYAN}[R]${NC} Reiniciar LAMP"
+
+    echo -e "\n  ${BOLD}🐘 CAMBIAR VERSIÓN DE PHP${NC}"
+    for i in "${!VERSIONES_PHP[@]}"; do
+        printf "  ${CYAN}%2d)${NC} Cambiar a PHP %s\n" $((i+1)) "${VERSIONES_PHP[$i]}"
+    done
+
+    echo -e "\n  ${CYAN}[0]${NC} Salir del configurador"
+    echo -e "  ${CYAN}——————————————————————————————————————————————————${NC}"
+    echo -ne "  ${BOLD}Selecciona una opción:${NC} "
+}
+
+# --- Bucle Principal ---
 
 while :
 do
-  case $opc in
-    i|I)
-      clear
-      echo -e "\e[36mIniciando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 start && sudo /etc/init.d/mariadb start;
-      echo -e "\e[36mLAMP iniciado, hasta la próxima $USER\e[0m"
-      exit
-      ;;
+    _menu
+    read -r opc
 
-    p|P)
-      clear
-      echo -e "\e[36mParando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 stop && sudo /etc/init.d/mariadb stop;
-      echo -e "\e[36mLAMP parado, hasta la próxima $USER\e[0m"
-      exit
-      ;;
+    case $opc in
+        i|I) echo ""; _gestion_servicio "start" "apache2 mariadb" "Levantando servicios LAMP"; _pausa ;;
+        p|P) echo ""; _gestion_servicio "stop" "apache2 mariadb" "Deteniendo servicios LAMP"; _pausa ;;
+        r|R) echo ""; _gestion_servicio "restart" "apache2 mariadb" "Reiniciando servicios LAMP"; _pausa ;;
 
-    r|R)
-      clear
-      echo -e "\e[36mReiniciando LAMP...\e[0m"
-      sudo /etc/init.d/apache2 restart && sudo /etc/init.d/mariadb restart;
-      echo -e "\e[36mLAMP reiniciado, hasta la próxima $USER\e[0m"
-      exit
-      ;;
+        a|A)
+            echo ""
+            if [ -f "$STRICT_MODE_BACKUP" ]; then
+                (sudo cp "$STRICT_MODE_BACKUP" "$STRICT_MODE_FILE" && sudo systemctl restart mysql) &
+                _progreso $! "Activando StrictMode"
+            else
+                echo -e "  ${RED}⚠ Error: Archivo backup no encontrado en $STRICT_MODE_BACKUP${NC}"
+            fi
+            _pausa ;;
 
-    1)
-      clear
-      echo -e "\e[36mCambiando a PHP 5.6...\e[0m"
-      sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php5.6 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php5.6 /etc/alternatives/php;
-      echo -e "\e[36mPHP 5.6 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
+        d|D)
+            echo ""
+            (sudo rm -f "$STRICT_MODE_FILE" && sudo systemctl restart mysql) &
+            _progreso $! "Desactivando StrictMode"
+            _pausa ;;
 
-    2)
-      clear
-      echo -e "\e[36mCambiando a PHP 7.0...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2  && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php7.0 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php7.0 /etc/alternatives/php;
-      echo -e "\e[36mPHP 7.0 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
+        [0-9]|[1-9][0-9])
+            if [ "$opc" -eq 0 ]; then
+                echo -e "\n  ${MAGENTA}👋 ¡Hasta luego!${NC}\n"
+                exit 0
+            fi
 
-    3)
-      clear
-      echo -e "\e[36mCambiando a PHP 7.1...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php7.1 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php7.1 /etc/alternatives/php;
-      echo -e "\e[36mPHP 7.1 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    4)
-      clear
-      echo -e "\e[36mCambiando a PHP 7.2...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php7.2 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php7.2 /etc/alternatives/php;
-      echo -e "\e[36mPHP 7.2 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    5)
-      clear
-      echo -e "\e[36mCambiando a PHP 7.3...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php7.3 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php7.3 /etc/alternatives/php;
-      echo -e "\e[36mPHP 7.3 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    6)
-      clear
-      echo -e "\e[36mCambiando a PHP 7.4...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php7.4 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php7.4 /etc/alternatives/php;
-      echo -e "\e[36mPHP 7.4 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    7)
-      clear
-      echo -e "\e[36mCambiando a PHP 8.0...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php8.0 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php8.0 /etc/alternatives/php;
-      echo -e "\e[36mPHP 8.0 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    8)
-      clear
-      echo -e "\e[36mCambiando a PHP 8.1...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php8.1 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php8.1 /etc/alternatives/php;
-      echo -e "\e[36mPHP 8.1 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    9)
-      clear
-      echo -e "\e[36mCambiando a PHP 8.2...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php8.2 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php8.2 /etc/alternatives/php;
-      echo -e "\e[36mPHP 8.2 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    10)
-      clear
-      echo -e "\e[36mCambiando a PHP 8.3...\e[0m"
-      sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.4 && sudo a2dismod php8.5 && sudo a2enmod php8.3 && sudo /etc/init.d/apache2 restart;
-      sudo ln -sfn /usr/bin/php8.3 /etc/alternatives/php;
-      echo -e "\e[36mPHP 8.3 activo, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    11)
-          clear
-          echo -e "\e[36mCambiando a PHP 8.4...\e[0m"
-          sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.5 && sudo a2enmod php8.4 && sudo /etc/init.d/apache2 restart;
-          sudo ln -sfn /usr/bin/php8.4 /etc/alternatives/php;
-          echo -e "\e[36mPHP 8.4 activo, hasta la próxima $USER\e[0m"
-          exit
-          ;;
-
-    12)
-          clear
-          echo -e "\e[36mCambiando a PHP 8.5...\e[0m"
-          sudo a2dismod php5.6 && sudo a2dismod php7.0 && sudo a2dismod php7.1 && sudo a2dismod php7.2 && sudo a2dismod php7.3 && sudo a2dismod php7.4 && sudo a2dismod php8.0 && sudo a2dismod php8.1 && sudo a2dismod php8.2 && sudo a2dismod php8.3 && sudo a2dismod php8.4 && sudo a2enmod php8.5 && sudo /etc/init.d/apache2 restart;
-          sudo ln -sfn /usr/bin/php8.5 /etc/alternatives/php;
-          echo -e "\e[36mPHP 8.5 activo, hasta la próxima $USER\e[0m"
-          exit
-          ;;
-
-    d|D)
-      clear
-      echo -e "\e[36mDesactivando MySQL StrictMode...\e[0m"
-      sudo rm /etc/mysql/conf.d/enable_strict_mode.cnf && sudo service mysql restart;
-      echo -e "\e[36mMySQL StrictMode desactivado, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    a|A)
-      clear
-      echo -e "\e[36mActivando MySQL StrictMode...\e[0m"
-      sudo cp /etc/mysql/conf.d/enable_strict_mode.cnf.back /etc/mysql/conf.d/enable_strict_mode.cnf && sudo service mysql restart;
-      echo -e "\e[36mMySQL StrictMode activado, hasta la próxima $USER\e[0m"
-      exit
-      ;;
-
-    0)
-      echo -e "\e[36mHasta luego $USER\e[0m"
-      exit
-      ;;
-
-    *) # Esta opcion se ejecuta si no es ninguna de las anteriores
-      clear
-      _menu
-      ;;
-  esac
-
-read opc
-
+            idx=$((opc-1))
+            if [ $idx -ge 0 ] && [ $idx -lt ${#VERSIONES_PHP[@]} ]; then
+                echo ""
+                _cambiar_php "${VERSIONES_PHP[$idx]}"
+                _pausa
+            else
+                echo -e "\n  ${RED}⚠ Opción inválida${NC}" ; sleep 1
+            fi
+            ;;
+        *)
+            echo -e "\n  ${RED}⚠ Opción inválida${NC}" ; sleep 1 ;;
+    esac
 done
