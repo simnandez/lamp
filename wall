@@ -108,6 +108,50 @@ unban_ip() {
     sleep 1
 }
 
+# --- FUNCIÓN: Limpieza log ---
+clear_logs() {
+    echo -e "\n${BG_ROJO}  [!] LIMPIEZA QUIRÚRGICA (MODO VIRTUALMIN)  ${NC}"
+
+    # Resolvemos la ruta real del log (donde están los datos de verdad)
+    local REAL_LOG=$(readlink -f "$LOG_PATH")
+    local LOG_DIR=$(dirname "$REAL_LOG")
+
+    if [ -f "$REAL_LOG" ]; then
+        # Medimos el tamaño antes de vaciar
+        local size=$(du -sh "$REAL_LOG" | awk '{print $1}')
+
+        # Creamos backup con fecha en el directorio real de logs
+        local FECHA=$(date +'%Y-%m-%d_%H-%M')
+        local BACKUP_NAME="${REAL_LOG}_${FECHA}.bak"
+
+        # Copiamos el contenido al backup antes de vaciar
+        cp "$REAL_LOG" "$BACKUP_NAME"
+
+        # VACIADO ATÓMICO: Borra el contenido sin borrar el archivo ni el enlace
+        : > "$REAL_LOG"
+
+        # SEGURIDAD VIRTUALMIN: Mantenemos dueño y permisos originales
+        # Usamos el backup como referencia para no cometer errores manuales
+        chown --reference="$BACKUP_NAME" "$REAL_LOG"
+        chmod --reference="$BACKUP_NAME" "$REAL_LOG"
+
+        echo -e "${VERDE}[OK]${NC} Se han vaciado $size del log real."
+        echo -e "${AZUL}[INFO]${NC} Backup creado en: $(basename "$BACKUP_NAME")"
+
+        # MANTENIMIENTO: Borrar backups antiguos de más de 7 días
+        echo -e "${CYAN}[MANTENIMIENTO]${NC} Limpiando backups de más de 7 días..."
+        find "$LOG_DIR" -name "$(basename "$REAL_LOG")_*.bak" -type f -mtime +7 -delete -print | while read file; do
+            echo -e "   ${BG_ROJO} ELIMINADO ${NC} $(basename "$file")"
+        done
+
+        echo -e "${VERDE}[LISTO]${NC} El monitor ahora empezará de cero."
+        sleep 2
+    else
+        echo -e "${BG_ROJO} ERROR ${NC} No se pudo localizar el archivo real en $REAL_LOG"
+        sleep 2
+    fi
+}
+
 # --- MODO DESBANEO POR PARÁMETRO ---
 if [ "$1" == "unban" ]; then
     unban_ip $2; exit 0
@@ -238,9 +282,10 @@ while true; do
     echo -e "  (${CYAN}I${NC}) Inspeccionar IP"
     echo -e "  (${BG_ROJO}B${NC}) Banear IP/Rango"
     echo -e "  (${CYAN}U${NC}) Desbanear IP/Rango"
-    echo -e "  (${VERDE}G${NC}) Actualizar IPs de Google"
+    echo -e "  (${VERDE}G${NC}) Actualizar lista blanca con IPs de Google"
     echo -e "  (${AZUL}M${NC}) Seleccionar otro Jail2Ban"
     echo -e "  (${VERDE}R${NC}) Refrescar"
+    echo -e "  (${BG_ROJO}L${NC}) Limpiar/Vaciar Logs"
     echo -e "  (${BLANCO}S${NC}) Salir"
     echo -e "${AZUL}==============================================================================${NC}"
 
@@ -252,6 +297,7 @@ while true; do
         g|G) echo -e "\n${AZUL} Ejecutando actualización de IPs de Google...${NC}"; update_google_ips.sh; read -p "Pulsa [Enter] para continuar..." ;;
         m|M) unset JAIL_NAME ;;
         r|R) continue ;;
+        l|L) clear_logs ;;
         s|S) clear; exit 0 ;;
     esac
 done
