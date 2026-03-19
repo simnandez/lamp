@@ -285,7 +285,7 @@ while true; do
     echo -e "  (${VERDE}G${NC}) Actualizar lista blanca con IPs de Google"
     echo -e "  (${AZUL}M${NC}) Seleccionar otro Jail2Ban"
     echo -e "  (${VERDE}R${NC}) Refrescar"
-    echo -e "  (${BG_ROJO}L${NC}) Limpiar/Vaciar Logs"
+    #echo -e "  (${BG_ROJO}L${NC}) Limpiar/Vaciar Logs"
     echo -e "  (${BLANCO}S${NC}) Salir"
     echo -e "${AZUL}==============================================================================${NC}"
 
@@ -297,7 +297,7 @@ while true; do
         g|G) echo -e "\n${AZUL} Ejecutando actualización de IPs de Google...${NC}"; update_google_ips.sh; read -p "Pulsa [Enter] para continuar..." ;;
         m|M) unset JAIL_NAME ;;
         r|R) continue ;;
-        l|L) clear_logs ;;
+     #   l|L) clear_logs ;;
         s|S) clear; exit 0 ;;
     esac
 done
