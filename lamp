@@ -69,10 +69,10 @@ _info_actual() {
     echo -e "  ┌──────────────────────────────────────────────────┐"
     echo -e "    ${BOLD}ESTADO DEL SISTEMA${NC}"
     echo ""
-    echo -e "    ${CYAN}🐘 Version PHP:${NC}  ${php_v:-"No instalado"}"
-    echo -e "    ${CYAN}🌐 Apache2:${NC}      $ST_APACHE"
-    echo -e "    ${CYAN}🐬 MySQL/DB:${NC}     $ST_MYSQL"
-    echo -e "    ${CYAN}🛠  MySQL Strict:${NC} $ST_STRICT"
+    echo -e "    ${CYAN}🐘 Version activa PHP:${NC}  ${php_v:-"No instalado"}"
+    echo -e "    ${CYAN}🌐 Apache2:${NC}             $ST_APACHE"
+    echo -e "    ${CYAN}🐬 MySQL/DB:${NC}            $ST_MYSQL"
+    echo -e "    ${CYAN}🛠  MySQL Strict:${NC}        $ST_STRICT"
     echo -e "  └──────────────────────────────────────────────────┘"
 }
 
@@ -105,16 +105,19 @@ _menu() {
     _info_actual
 
     echo -e "\n  ${BOLD}⚡ GESTIÓN DE SERVICIOS${NC}"
-    echo -e "  ${CYAN}[I]${NC} Iniciar LAMP      ${CYAN}[A]${NC} Activar MySQL Strict"
-    echo -e "  ${CYAN}[P]${NC} Parar LAMP        ${CYAN}[D]${NC} Desactivar MySQL Strict"
+    echo -e "  ${CYAN}[I]${NC} Iniciar LAMP"
+    echo -e "  ${CYAN}[P]${NC} Parar LAMP"
     echo -e "  ${CYAN}[R]${NC} Reiniciar LAMP"
+    echo ""
+    echo -e "  ${CYAN}[A]${NC} Activar MySQL Strict"
+    echo -e "  ${CYAN}[D]${NC} Desactivar MySQL Strict"
 
-    echo -e "\n  ${BOLD}🐘 CAMBIAR VERSIÓN DE PHP${NC}"
+    echo -e "\n  ${BOLD}🐘 ACTIVAR VERSIÓN DE PHP${NC}"
     for i in "${!VERSIONES_PHP[@]}"; do
-        printf "  ${CYAN}%2d)${NC} Cambiar a PHP %s\n" $((i+1)) "${VERSIONES_PHP[$i]}"
+        printf "  ${CYAN}[%2d]${NC} Cambiar a PHP %s\n" $((i+1)) "${VERSIONES_PHP[$i]}"
     done
 
-    echo -e "\n  ${CYAN}[0]${NC} Salir del configurador"
+    echo -e "\n  ${CYAN}[0]${NC} Salir"
     echo -e "  ${CYAN}——————————————————————————————————————————————————${NC}"
     echo -ne "  ${BOLD}Selecciona una opción:${NC} "
 }
@@ -149,7 +152,7 @@ do
 
         [0-9]|[1-9][0-9])
             if [ "$opc" -eq 0 ]; then
-                echo -e "\n  ${MAGENTA}👋 ¡Hasta luego!${NC}\n"
+                echo -e "\n  ${MAGENTA}👋 ¡Hasta luego $USER!${NC}\n"
                 exit 0
             fi
 
