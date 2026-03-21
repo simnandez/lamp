@@ -87,8 +87,17 @@ ban_ip_manual() {
         echo -e " 3) Cancelar"
         read -p " Selecciona opción [1-3]: " opt_b
         case $opt_b in
-            1) sudo iptables -I INPUT -s "$IP_B" -j DROP; echo -e "${VERDE}[OK]${NC} IP bloqueada." ;;
-            2) RANGO=$(echo $IP_B | cut -d'.' -f1-2).0.0/16; sudo iptables -I INPUT -s "$RANGO" -j DROP; echo -e "${VERDE}[OK]${NC} Rango bloqueado." ;;
+            1)
+                sudo iptables -I INPUT -s "$IP_B" -j DROP
+                sudo netfilter-persistent save
+                echo -e "${VERDE}[OK]${NC} IP bloqueada y guardada."
+                ;;
+            2)
+                RANGO=$(echo $IP_B | cut -d'.' -f1-2).0.0/16
+                sudo iptables -I INPUT -s "$RANGO" -j DROP
+                sudo netfilter-persistent save
+                echo -e "${VERDE}[OK]${NC} Rango bloqueado y guardado."
+                ;;
             *) echo "Operación cancelada." ;;
         esac
     fi
@@ -104,6 +113,7 @@ unban_ip() {
         sudo fail2ban-client set $jail unbanip $IP_TO_UNBAN > /dev/null 2>&1
     done
     while sudo iptables -D INPUT -s $IP_TO_UNBAN -j DROP 2>/dev/null; do :; done
+    sudo netfilter-persistent save
     echo -e "${VERDE}[OK]${NC} IP liberada."
     sleep 1
 }
