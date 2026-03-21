@@ -349,7 +349,7 @@ done
           echo -e " Introduce el código ISO a liberar (ej: cn, ru): "
           read -p " Código: " ISO_UNBLOCK
           if [[ -n "$ISO_UNBLOCK" ]]; then
-              sudo /usr/local/bin/unblock_countries.sh "$ISO_UNBLOCK"
+              sudo /usr/local/bin/unblock_pais.sh "$ISO_UNBLOCK"
               echo -e "${VERDE}[OK]${NC} País $ISO_UNBLOCK liberado."
           fi
           sleep 2
