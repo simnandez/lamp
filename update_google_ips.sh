@@ -31,17 +31,42 @@ fi
 echo "[DEFAULT]
 ignoreip = $LISTA_FINAL" > /etc/fail2ban/jail.d/google-whitelist.local
 
-echo "Archivo /etc/fail2ban/jail.d/google-whitelist.local actualizado ($TOTAL_IPS rangos)."
-
-# 2. Recargar Fail2ban para aplicar los cambios en todos los jails
 echo "Recargando Fail2ban..."
 if fail2ban-client reload > /dev/null 2>&1; then
     echo "--------------------------------------------------------"
-    echo "¡LISTO! Google y tus IPs están en la lista blanca global."
-    echo "Fail2ban ha sido recargado correctamente."
+    echo "¡OK! Fail2ban actualizado ($TOTAL_IPS rangos)."
 else
     echo "--------------------------------------------------------"
     echo "ERROR: El archivo se creó pero Fail2ban no pudo recargar."
     echo "Revisa la sintaxis con: fail2ban-client -d"
     exit 1
 fi
+
+# --- PARTE 2: FIREWALL IPSET (Protección de prioridad en IPTables) ---
+# 1. Crear el set si no existe (hash:net es necesario para rangos CIDR)
+# Creamos el set para IPv4.
+ipset create google-whitelist hash:net 2>/dev/null
+
+# 2. Limpiar y rellenar el set con las IPs frescas
+echo "Actualizando ipset google-whitelist..."
+ipset flush google-whitelist
+for ip in $LISTA_FINAL; do
+    # Añadimos solo IPv4 al ipset (ipset estándar suele quejarse con IPv6 si no se especifica family inet6)
+    if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+        ipset add google-whitelist $ip 2>/dev/null
+    fi
+done
+
+# 3. Inyectar la regla de prioridad en la posición #1 de IPTables
+# Usamos -I (Insert) para asegurar que Google pase ANTES de cualquier baneo de país por ipset
+if ! iptables -C INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null; then
+    sudo iptables -I INPUT -m set --match-set google-whitelist src -j ACCEPT
+    echo "[OK] Regla de prioridad añadida a IPTables (Posición #1)."
+fi
+
+# 4. Persistencia para que sobreviva a reinicios
+sudo netfilter-persistent save > /dev/null 2>&1
+
+echo "--------------------------------------------------------"
+echo "¡LISTO! Google y tus IPs son ahora prioridad #1 en el Firewall."
+echo "Ahora la opción (P) de bloqueo de países es segura frente a Googlebot."

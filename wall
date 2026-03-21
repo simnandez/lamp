@@ -250,17 +250,51 @@ while true; do
         printf "  ${COL_REQ}%4s${NC} | %-14s | %-18s | %b\n" "$count" "$ip" "$pais_completo" "$reputacion"
     done
 
-    # 3. IPTABLES
-    echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables DROP)                                                ${NC}"
-    echo -e "${AZUL}   Paquetes  |      IP / RANGO     |   País${NC}"
+    # 3. IPTABLES / IPSET
+    echo -e "\n${BG_AZUL}  3. MURO MANUAL (Iptables / IPSET)                                             ${NC}"
+    echo -e "${AZUL}   Paquetes  |      IP / RANGO / PAÍS      |   Detalle / Origen${NC}"
     echo " ------------------------------------------------------------------------------"
-    sudo iptables -L INPUT -n -v | grep "DROP" | awk '{print $1, $8}' | sort -hr | while read pkts source; do
-        pkts_clean=$(echo $pkts | sed 's/[a-zA-Z]//g' | cut -d'.' -f1)
+
+    # Listamos reglas DROP. Usamos awk para capturar toda la línea y procesarla mejor.
+    sudo iptables -L INPUT -n -v | grep "DROP" | while read -r line; do
+        # Extraemos datos básicos por posición de columna
+        pkts=$(echo "$line" | awk '{print $1}')
+        source=$(echo "$line" | awk '{print $8}')
+
+        # Limpieza de contador para el color
+        pkts_clean=$(echo "$pkts" | sed 's/[a-z,A-Z]//g' | cut -d'.' -f1)
         [ "${pkts_clean:-0}" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
-        IP_C=$(echo $source | cut -d'/' -f1)
-        pais=$(geoiplookup $IP_C 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-20)
-        printf "  ${COL_P}%10s${NC} | ${CYAN}%-19s${NC} | %s\n" "$pkts" "$source" "${pais:-?}"
-    done
+
+        # --- DETECCIÓN DE IPSET (PAÍSES) ---
+       if [[ "$line" == *"match-set"* ]]; then
+           SET_NAME=$(echo "$line" | awk -F'match-set ' '{print $2}' | awk '{print $1}')
+           PAIS_CODE=$(echo "$SET_NAME" | cut -d'-' -f2)
+
+           # TRUCO: Usamos "whois" o una consulta rápida para obtener el nombre.
+           # Si tienes instalado el paquete 'iso-codes', esta es la forma más limpia:
+           if command -v iso3166 &> /dev/null; then
+               NOMBRE=$(iso3166 $PAIS_CODE | head -n 1 | cut -d';' -f2)
+           else
+               # Si no, usamos este "hack" con geoiplookup usando una IP conocida del país:
+               # (Este comando busca el nombre asociado al código en la base de datos local)
+               NOMBRE=$(grep -i "^$PAIS_CODE" /usr/share/zoneinfo/iso3166.tab | cut -f2)
+           fi
+
+           TEXTO_PAIS="PAÍS: $NOMBRE"
+           printf "  ${COL_P}%10s${NC} | ${BG_AMARILLO}%-25s${NC} | Set: ${CYAN}%s${NC}\n" "$pkts" " $TEXTO_PAIS" "$SET_NAME"
+
+        # --- DETECCIÓN DE IP/RANGO NORMAL ---
+        else
+            IP_C=$(echo "$source" | cut -d'/' -f1)
+            if [ "$IP_C" == "0.0.0.0" ]; then
+                PAIS_INFO="Regla General"
+            else
+                # Geolocalización rápida
+                PAIS_INFO=$(geoiplookup "$IP_C" 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-20)
+            fi
+            printf "  ${COL_P}%10s${NC} | ${CYAN}%-24s${NC} | %s\n" "$pkts" "$source" "${PAIS_INFO:-?}"
+        fi
+    done | sort -hr  # Ordenamos por paquetes al final
 
     # 4. FAIL2BAN
     echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^}                     ${NC}"
@@ -291,7 +325,9 @@ while true; do
     echo -e "\n${BG_AMARILLO}  [!] MENU DE OPCIONES                                                        ${NC}"
     echo -e "  (${CYAN}I${NC}) Inspeccionar IP"
     echo -e "  (${BG_ROJO}B${NC}) Banear IP/Rango"
+    echo -e "  (${BG_ROJO}P${NC}) Banear PAÍS completo (ipset)"
     echo -e "  (${CYAN}U${NC}) Desbanear IP/Rango"
+    echo -e "  (${AZUL}D${NC}) Desbanear PAÍS completo (ipset)"
     echo -e "  (${VERDE}G${NC}) Actualizar lista blanca con IPs de Google"
     echo -e "  (${AZUL}M${NC}) Seleccionar otro Jail2Ban"
     echo -e "  (${VERDE}R${NC}) Refrescar"
@@ -303,7 +339,27 @@ while true; do
     case $accion in
         i|I) echo ""; read -p " IP: " IP_I; inspect_ip $IP_I ;;
         b|B) ban_ip_manual ;;
+        p|P)
+          echo -e "\n${BG_ROJO}  [!] BLOQUEO POR PAÍS  ${NC}"
+          echo -e " Introduce el código ISO (ej: cn, ru, us, ro): "
+          read -p " Código: " ISO_CODE
+          if [[ -n "$ISO_CODE" ]]; then
+              sudo /usr/local/bin/block_pais.sh "$ISO_CODE"
+              echo -e "${VERDE}[OK]${NC} País $ISO_CODE bloqueado por IPSET."
+          fi
+          sleep 2
+          ;;
         u|U) echo ""; read -p " IP: " IP_U; unban_ip $IP_U ;;
+        d|D)
+          echo -e "\n${BG_AZUL}  [!] DESBLOQUEO POR PAÍS  ${NC}"
+          echo -e " Introduce el código ISO a liberar (ej: cn, ru): "
+          read -p " Código: " ISO_UNBLOCK
+          if [[ -n "$ISO_UNBLOCK" ]]; then
+              sudo /usr/local/bin/unblock_countries.sh "$ISO_UNBLOCK"
+              echo -e "${VERDE}[OK]${NC} País $ISO_UNBLOCK liberado."
+          fi
+          sleep 2
+          ;;
         g|G) echo -e "\n${AZUL} Ejecutando actualización de IPs de Google...${NC}"; update_google_ips.sh; read -p "Pulsa [Enter] para continuar..." ;;
         m|M) unset JAIL_NAME ;;
         r|R) continue ;;
