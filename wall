@@ -255,46 +255,40 @@ while true; do
     echo -e "${AZUL}   Paquetes  |      IP / RANGO / PAÍS      |   Detalle / Origen${NC}"
     echo " ------------------------------------------------------------------------------"
 
-    # Listamos reglas DROP. Usamos awk para capturar toda la línea y procesarla mejor.
-    sudo iptables -L INPUT -n -v | grep "DROP" | while read -r line; do
-        # Extraemos datos básicos por posición de columna
-        pkts=$(echo "$line" | awk '{print $1}')
-        source=$(echo "$line" | awk '{print $8}')
+    sudo iptables -L INPUT -n -v | grep "DROP" | sort -hr | while read -r line; do
+    # Extraemos datos básicos por posición de columna
+    pkts=$(echo "$line" | awk '{print $1}')
+    source=$(echo "$line" | awk '{print $8}')
 
-        # Limpieza de contador para el color
-        pkts_clean=$(echo "$pkts" | sed 's/[a-z,A-Z]//g' | cut -d'.' -f1)
-        [ "${pkts_clean:-0}" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
+    # Limpieza de contador para el color
+    pkts_clean=$(echo "$pkts" | sed 's/[a-z,A-Z]//g' | cut -d'.' -f1)
+    [ "${pkts_clean:-0}" -gt 0 ] && COL_P=${BG_ROJO} || COL_P=${VERDE}
 
-        # --- DETECCIÓN DE IPSET (PAÍSES) ---
-       if [[ "$line" == *"match-set"* ]]; then
-           SET_NAME=$(echo "$line" | awk -F'match-set ' '{print $2}' | awk '{print $1}')
-           PAIS_CODE=$(echo "$SET_NAME" | cut -d'-' -f2)
+    # --- DETECCIÓN DE IPSET (PAÍSES) ---
+    if [[ "$line" == *"match-set"* ]]; then
+      SET_NAME=$(echo "$line" | awk -F'match-set ' '{print $2}' | awk '{print $1}')
+      PAIS_CODE=$(echo "$SET_NAME" | cut -d'-' -f2)
 
-           # TRUCO: Usamos "whois" o una consulta rápida para obtener el nombre.
-           # Si tienes instalado el paquete 'iso-codes', esta es la forma más limpia:
-           if command -v iso3166 &> /dev/null; then
-               NOMBRE=$(iso3166 $PAIS_CODE | head -n 1 | cut -d';' -f2)
-           else
-               # Si no, usamos este "hack" con geoiplookup usando una IP conocida del país:
-               # (Este comando busca el nombre asociado al código en la base de datos local)
-               NOMBRE=$(grep -i "^$PAIS_CODE" /usr/share/zoneinfo/iso3166.tab | cut -f2)
-           fi
+      if command -v iso3166 &> /dev/null; then
+        NOMBRE=$(iso3166 $PAIS_CODE | head -n 1 | cut -d';' -f2)
+      else
+        NOMBRE=$(grep -i "^$PAIS_CODE" /usr/share/zoneinfo/iso3166.tab | cut -f2)
+      fi
 
-           TEXTO_PAIS="PAÍS: $NOMBRE"
-           printf "  ${COL_P}%10s${NC} | ${BG_AMARILLO}%-25s${NC} | Set: ${CYAN}%s${NC}\n" "$pkts" " $TEXTO_PAIS" "$SET_NAME"
+      TEXTO_PAIS="PAÍS: $NOMBRE"
+      printf "  ${COL_P}%10s${NC} |${VERDE}%-26s${NC} | Set: ${CYAN}%s${NC}\n" "$pkts" " $TEXTO_PAIS" "$SET_NAME"
 
-        # --- DETECCIÓN DE IP/RANGO NORMAL ---
+    # --- DETECCIÓN DE IP/RANGO NORMAL ---
+    else
+        IP_C=$(echo "$source" | cut -d'/' -f1)
+        if [ "$IP_C" == "0.0.0.0" ]; then
+            PAIS_INFO="Regla General"
         else
-            IP_C=$(echo "$source" | cut -d'/' -f1)
-            if [ "$IP_C" == "0.0.0.0" ]; then
-                PAIS_INFO="Regla General"
-            else
-                # Geolocalización rápida
-                PAIS_INFO=$(geoiplookup "$IP_C" 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-20)
-            fi
-            printf "  ${COL_P}%10s${NC} | ${CYAN}%-24s${NC} | %s\n" "$pkts" "$source" "${PAIS_INFO:-?}"
+            PAIS_INFO=$(geoiplookup "$IP_C" 2>/dev/null | head -n 1 | sed 's/.*, //' | cut -c1-20)
         fi
-    done | sort -hr  # Ordenamos por paquetes al final
+        printf "  ${COL_P}%10s${NC} | ${CYAN}%-24s${NC} | %s\n" "$pkts" "$source" "${PAIS_INFO:-?}"
+    fi
+done
 
     # 4. FAIL2BAN
     echo -e "\n${BG_AZUL}  4. MURO AUTOMÁTICO (Fail2Ban): ${BLANCO}${JAIL_NAME^^}                     ${NC}"
