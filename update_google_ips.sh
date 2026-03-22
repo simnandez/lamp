@@ -1,8 +1,20 @@
 #!/bin/bash
 
 # ==========================================================
-# CONFIGURACIÓN DE IPS PERMITIDAS DE TERCEROS PROBANCE Y LA TEVA WEB
-MIS_IPS="80.24.12.77 34.78.139.107"
+# CONFIGURACIÓN DE TERCEROS (PAGOS Y LOGÍSTICA)
+# ==========================================================
+# IPs fijas de seQura
+IPS_SEQURA="34.253.159.179 34.252.147.155 52.211.243.177"
+
+# Rangos de PayPal (Principales para Checkout y APIs)
+IPS_PAYPAL="173.0.80.0/20 66.211.168.0/22 64.4.240.0/21 66.211.160.0/20"
+
+# Rangos de Redsys (Pasarela de tarjetas España)
+IPS_REDSYS="193.16.160.0/24 195.76.9.0/24 195.76.29.0/24"
+
+# ==========================================================
+# CONFIGURACIÓN DE NUESTRA INFRAESTRUCTURA (PROBANCE Y LA TEVA WEB)
+MIS_IPS="80.24.12.77 34.78.139.107 $IPS_SEQURA $IPS_PAYPAL $IPS_REDSYS"
 # ==========================================================
 
 # URLs oficiales de Google
@@ -42,31 +54,39 @@ else
     exit 1
 fi
 
-# --- PARTE 2: FIREWALL IPSET (Protección de prioridad en IPTables) ---
-# 1. Crear el set si no existe (hash:net es necesario para rangos CIDR)
-# Creamos el set para IPv4.
+# --- PARTE 2: FIREWALL IPSET (Prioridad para Pasarelas y Google) ---
+# Crear el set de Whitelist si no existe
 ipset create google-whitelist hash:net 2>/dev/null
-
-# 2. Limpiar y rellenar el set con las IPs frescas
-echo "Actualizando ipset google-whitelist..."
 ipset flush google-whitelist
+
+echo "Actualizando ipset google-whitelist..."
 for ip in $LISTA_FINAL; do
-    # Añadimos solo IPv4 al ipset (ipset estándar suele quejarse con IPv6 si no se especifica family inet6)
+    # Añadir solo IPv4 al ipset estándar
     if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
         ipset add google-whitelist $ip 2>/dev/null
     fi
 done
 
-# 3. Inyectar la regla de prioridad en la posición #1 de IPTables
-# Usamos -I (Insert) para asegurar que Google pase ANTES de cualquier baneo de país por ipset
-if ! iptables -C INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null; then
-    sudo iptables -I INPUT -m set --match-set google-whitelist src -j ACCEPT
-    echo "[OK] Regla de prioridad añadida a IPTables (Posición #1)."
-fi
+# --- PARTE 3: REGLAS DE IPTABLES (EL ORDEN ES VITAL) ---
+# Limpiar reglas previas para evitar duplicados
+iptables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
+iptables -D INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null
+iptables -D OUTPUT -m set --match-set google-whitelist dst -j ACCEPT 2>/dev/null
+
+# 1. PERMITIR RESPUESTAS (La regla de oro para que el carrito NO se cuelgue)
+# Permite que si el servidor inicia una conexión (ej. a PayPal), la respuesta entre de vuelta.
+iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 2. WHITELIST PRIORITARIA (Google, PayPal, Redsys, seQura)
+# Se pone en la posición #2 para que pase antes que cualquier bloqueo de país.
+iptables -I INPUT 2 -m set --match-set google-whitelist src -j ACCEPT
+
+# 3. SALIDA SEGURA (Permite que el servidor envíe datos a las pasarelas de pago)
+iptables -I OUTPUT 1 -m set --match-set google-whitelist dst -j ACCEPT
 
 # 4. Persistencia para que sobreviva a reinicios
 sudo netfilter-persistent save > /dev/null 2>&1
 
 echo "--------------------------------------------------------"
-echo "¡LISTO! Google y tus IPs son ahora prioridad #1 en el Firewall."
-echo "Ahora la opción (P) de bloqueo de países es segura frente a Googlebot."
+echo "¡LISTO! Configuración de Whitelist y Pagos aplicada."
+echo "Rango de IPs en lista blanca: $TOTAL_IPS"
