@@ -6,16 +6,14 @@
 # IPs fijas de seQura
 IPS_SEQURA="34.253.159.179 34.252.147.155 52.211.243.177"
 
-# Rangos de PayPal (Principales para Checkout y APIs)
-IPS_PAYPAL="173.0.80.0/20 66.211.168.0/22 64.4.240.0/21 66.211.160.0/20"
+# Rangos de PayPal (Global + Europa + IPN)
+IPS_PAYPAL="173.0.80.0/20 66.211.168.0/22 64.4.240.0/21 66.211.160.0/20 91.243.0.0/23 185.177.52.0/22"
 
-# Rangos de Redsys (Pasarela de tarjetas España)
-IPS_REDSYS="193.16.160.0/24 195.76.9.0/24 195.76.29.0/24"
+# Rangos de Redsys (Pasarela de tarjetas España - Servired/4B)
+IPS_REDSYS="193.16.160.0/24 195.76.9.0/24 195.76.29.0/24 194.224.159.0/24 82.223.1.0/24"
 
-# ==========================================================
-# CONFIGURACIÓN DE NUESTRA INFRAESTRUCTURA (PROBANCE Y LA TEVA WEB)
+# Nuestra infraestructura y colaboradores
 MIS_IPS="80.24.12.77 34.78.139.107 $IPS_SEQURA $IPS_PAYPAL $IPS_REDSYS"
-# ==========================================================
 
 # URLs oficiales de Google
 URL_GBOT="https://developers.google.com/static/search/apis/ipranges/googlebot.json"
@@ -68,20 +66,18 @@ for ip in $LISTA_FINAL; do
 done
 
 # --- PARTE 3: REGLAS DE IPTABLES (EL ORDEN ES VITAL) ---
-# Limpiar reglas previas para evitar duplicados
+# 1. Primero nos aseguramos de que la regla de ESTABLISHED esté en el TOP 1
+# Borramos cualquier versión previa para no duplicar
 iptables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
-iptables -D INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null
-iptables -D OUTPUT -m set --match-set google-whitelist dst -j ACCEPT 2>/dev/null
-
-# 1. PERMITIR RESPUESTAS (La regla de oro para que el carrito NO se cuelgue)
-# Permite que si el servidor inicia una conexión (ej. a PayPal), la respuesta entre de vuelta.
 iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# 2. WHITELIST PRIORITARIA (Google, PayPal, Redsys, seQura)
-# Se pone en la posición #2 para que pase antes que cualquier bloqueo de país.
+# 2. El IPSET de Whitelist (Google + PayPal + Redsys) en el TOP 2
+# Borramos cualquier regla que use este set para re-insertarla limpia en la posición 2
+iptables -D INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null
 iptables -I INPUT 2 -m set --match-set google-whitelist src -j ACCEPT
 
-# 3. SALIDA SEGURA (Permite que el servidor envíe datos a las pasarelas de pago)
+# 3. La salida (OUTPUT) para que tu servidor pueda hablar con PayPal
+iptables -D OUTPUT -m set --match-set google-whitelist dst -j ACCEPT 2>/dev/null
 iptables -I OUTPUT 1 -m set --match-set google-whitelist dst -j ACCEPT
 
 # 4. Persistencia para que sobreviva a reinicios
