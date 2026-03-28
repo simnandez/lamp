@@ -18,15 +18,17 @@ MIS_IPS="80.24.12.77 34.78.139.107 $IPS_SEQURA $IPS_PAYPAL $IPS_REDSYS"
 # URLs oficiales de Google
 URL_GBOT="https://developers.google.com/static/search/apis/ipranges/googlebot.json"
 URL_GOOG="https://www.gstatic.com/ipranges/goog.json"
+URL_GUSER="https://developers.google.com/crawling/ipranges/user-triggered-agents.json"
 
-echo "Descargando rangos de Google..."
+echo "Descargando rangos de Google (Bot, Cloud y User-Triggered)..."
 
-# Extraer IPs de ambas URLs
+# Extraer IPs de las tres URLs
 IPS_GBOT=$(curl -s $URL_GBOT | jq -r '.prefixes[] | [.ipv4Prefix, .ipv6Prefix] | .[] | select(. != null)' 2>/dev/null)
 IPS_GOOG=$(curl -s $URL_GOOG | jq -r '.prefixes[] | [.ipv4Prefix, .ipv6Prefix] | .[] | select(. != null)' 2>/dev/null)
+IPS_GUSER=$(curl -s $URL_GUSER | jq -r '.prefixes[] | [.ipv4Prefix, .ipv6Prefix] | .[] | select(. != null)' 2>/dev/null)
 
 # Unir todo y limpiar duplicados
-LISTA_FINAL=$(echo "127.0.0.1/8 ::1 $MIS_IPS $IPS_GBOT $IPS_GOOG" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
+LISTA_FINAL=$(echo "127.0.0.1/8 ::1 $MIS_IPS $IPS_GBOT $IPS_GOOG $IPS_GUSER" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')
 
 # Conteo para información visual
 TOTAL_IPS=$(echo "$LISTA_FINAL" | wc -w)
@@ -37,7 +39,6 @@ if [ -z "$IPS_GBOT" ] || [ "$TOTAL_IPS" -lt 10 ]; then
 fi
 
 # 1. Crear/Sobreescribir el archivo de configuración permanente
-# Esto aplica a TODOS los jails porque está en la sección [DEFAULT]
 echo "[DEFAULT]
 ignoreip = $LISTA_FINAL" > /etc/fail2ban/jail.d/google-whitelist.local
 
@@ -67,16 +68,14 @@ done
 
 # --- PARTE 3: REGLAS DE IPTABLES (EL ORDEN ES VITAL) ---
 # 1. Primero nos aseguramos de que la regla de ESTABLISHED esté en el TOP 1
-# Borramos cualquier versión previa para no duplicar
 iptables -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null
 iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 # 2. El IPSET de Whitelist (Google + PayPal + Redsys) en el TOP 2
-# Borramos cualquier regla que use este set para re-insertarla limpia en la posición 2
 iptables -D INPUT -m set --match-set google-whitelist src -j ACCEPT 2>/dev/null
 iptables -I INPUT 2 -m set --match-set google-whitelist src -j ACCEPT
 
-# 3. La salida (OUTPUT) para que tu servidor pueda hablar con PayPal
+# 3. La salida (OUTPUT) para que el servidor pueda hablar con PayPal
 iptables -D OUTPUT -m set --match-set google-whitelist dst -j ACCEPT 2>/dev/null
 iptables -I OUTPUT 1 -m set --match-set google-whitelist dst -j ACCEPT
 
