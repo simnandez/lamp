@@ -5,6 +5,15 @@ VERSIONES_PHP=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4"
 STRICT_MODE_FILE="/etc/mysql/conf.d/enable_strict_mode.cnf"
 STRICT_MODE_BACKUP="/etc/mysql/conf.d/enable_strict_mode.cnf.back"
 
+# --- Autodetección de Base de Datos ---
+if systemctl list-unit-files mariadb.service >/dev/null 2>&1; then
+    DB_SERVICE="mariadb"
+elif systemctl list-unit-files mysql.service >/dev/null 2>&1; then
+    DB_SERVICE="mysql"
+else
+    DB_SERVICE="" # No se detectó ninguna
+fi
+
 # Colores y Estilos
 BOLD='\e[1m'
 CYAN='\e[36m'
@@ -12,10 +21,9 @@ GREEN='\e[32m'
 YELLOW='\e[33m'
 RED='\e[31m'
 MAGENTA='\e[35m'
-NC='\e[0m' # No Color
+NC='\e[0m'
 
 # --- Funciones de Interfaz ---
-
 _pausa() {
     echo -e "\n  ${MAGENTA}➔${NC} Presiona cualquier tecla para volver al menú..."
     read -n 1 -s -r
@@ -43,64 +51,71 @@ _progreso() {
 _info_actual() {
     # 1. Obtener versión de PHP
     local php_raw=$(php -v 2>/dev/null | head -n 1 | cut -d " " -f 2)
-    local php_v=$(echo "$php_raw" | cut -d "+" -f 1 | cut -d "~" -f 1)
+    local php_v=${php_raw%%+*}
 
     # 2. Comprobar Apache
-    if systemctl is-active --quiet apache2; then
-        ST_APACHE="${GREEN}● ACTIVO${NC}"
-    else
-        ST_APACHE="${RED}○ DESACTIVADO${NC}"
-    fi
+    ST_APACHE=$(systemctl is-active --quiet apache2 && echo -e "${GREEN}● ACTIVO${NC}" || echo -e "${RED}○ DESACTIVADO${NC}")
 
     # 3. Comprobar MySQL o MariaDB
-    if systemctl is-active --quiet mariadb || systemctl is-active --quiet mysql; then
-        ST_MYSQL="${GREEN}● ACTIVO${NC}"
+    if [ -n "$DB_SERVICE" ] && systemctl is-active --quiet "$DB_SERVICE"; then
+        ST_MYSQL="${GREEN}● ACTIVO ($DB_SERVICE)${NC}"
     else
         ST_MYSQL="${RED}○ DESACTIVADO${NC}"
     fi
 
-    # 4. Comprobar Strict Mode (Tu lógica original)
-    if [ -f "$STRICT_MODE_FILE" ]; then
-        ST_STRICT="${GREEN}● ACTIVADO${NC}"
-    else
-        ST_STRICT="${RED}○ DESACTIVADO${NC}"
-    fi
+    # 4. Comprobar Strict Mode
+    ST_STRICT=$([ -f "$STRICT_MODE_FILE" ] && echo -e "${GREEN}● ACTIVADO${NC}" || echo -e "${RED}○ DESACTIVADO${NC}")
 
     echo -e "  ┌──────────────────────────────────────────────────┐"
     echo -e "    ${BOLD}ESTADO DEL SISTEMA${NC}"
     echo ""
-    echo -e "    ${CYAN}🐘 Version activa PHP:${NC}  ${php_v:-"No instalado"}"
+    echo -e "    ${CYAN}🐘 Versión activa PHP:${NC}  ${php_v:-"No instalado"}"
     echo -e "    ${CYAN}🌐 Apache2:${NC}             $ST_APACHE"
-    echo -e "    ${CYAN}🐬 MySQL/DB:${NC}            $ST_MYSQL"
-    echo -e "    ${CYAN}🛠  MySQL Strict:${NC}        $ST_STRICT"
+    echo -e "    ${CYAN}🐬 Base de Datos:${NC}       $ST_MYSQL"
+    echo -e "    ${CYAN}🛠  MySQL Strict Mode:${NC}   $ST_STRICT"
     echo -e "  └──────────────────────────────────────────────────┘"
 }
 
-
 # --- Funciones de Lógica ---
-
 _cambiar_php() {
     local v=$1
+
+    if [ ! -f "/etc/apache2/mods-available/php$v.load" ]; then
+        echo -e "${RED}⚠ Error: La versión PHP $v no está instalada.${NC}"
+        return 1
+    fi
+
     (
-        current_mods=$(ls /etc/apache2/mods-enabled/php*.load 2>/dev/null | xargs -n1 basename | sed 's/.load//')
+        current_mods=$(ls /etc/apache2/mods-enabled/php*.load 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.load//')
         for mod in $current_mods; do sudo a2dismod "$mod" >/dev/null 2>&1; done
         sudo a2enmod "php$v" >/dev/null 2>&1
-        sudo ln -sfn "/usr/bin/php$v" /etc/alternatives/php
+        sudo update-alternatives --set php "/usr/bin/php$v" >/dev/null 2>&1
         sudo systemctl restart apache2
     ) &
     _progreso $! "Configurando PHP $v y reiniciando Apache"
 }
 
 _gestion_servicio() {
-    sudo systemctl $1 $2 &
-    _progreso $! "$3"
+    local servicios=$1
+    local accion=$2
+    local mensaje=$3
+
+    # Comprobar que cada servicio existe
+    for srv in $servicios; do
+        if ! systemctl list-unit-files "${srv}.service" >/dev/null 2>&1; then
+            echo -e "${RED}⚠ Error: El servicio '$srv' no está instalado.${NC}"
+            return 1
+        fi
+    done
+
+    sudo systemctl $accion $servicios >/dev/null 2>&1 &
+    _progreso $! "$mensaje"
 }
 
 # --- Menú ---
-
 _menu() {
     clear
-    echo -e "\n  ${BOLD}${MAGENTA}🚀 LAMP CONFIGURATOR PRO-EXPERT 8.5${NC}"
+    echo -e "\n  ${BOLD}${MAGENTA}🚀 LAMP CONFIGURATOR PRO-EXPERT 8.5.1${NC}"
     echo -e "  ${CYAN}——————————————————————————————————————————————————${NC}"
     _info_actual
 
@@ -109,8 +124,8 @@ _menu() {
     echo -e "  ${CYAN}[P]${NC} Parar LAMP"
     echo -e "  ${CYAN}[R]${NC} Reiniciar LAMP"
     echo ""
-    echo -e "  ${CYAN}[A]${NC} Activar MySQL Strict"
-    echo -e "  ${CYAN}[D]${NC} Desactivar MySQL Strict"
+    echo -e "  ${CYAN}[A]${NC} Activar MySQL Strict Mode"
+    echo -e "  ${CYAN}[D]${NC} Desactivar MySQL Strict Mode"
 
     echo -e "\n  ${BOLD}🐘 ACTIVAR VERSIÓN DE PHP${NC}"
     for i in "${!VERSIONES_PHP[@]}"; do
@@ -123,30 +138,40 @@ _menu() {
 }
 
 # --- Bucle Principal ---
-
 while :
 do
     _menu
     read -r opc
 
+    # Definir lista de servicios para LAMP usando la detección automática
+    LAMP_SERVICES="apache2 $DB_SERVICE"
+
     case $opc in
-        i|I) echo ""; _gestion_servicio "start" "apache2 mariadb" "Levantando servicios LAMP"; _pausa ;;
-        p|P) echo ""; _gestion_servicio "stop" "apache2 mariadb" "Deteniendo servicios LAMP"; _pausa ;;
-        r|R) echo ""; _gestion_servicio "restart" "apache2 mariadb" "Reiniciando servicios LAMP"; _pausa ;;
+        i|I)
+            _gestion_servicio "$LAMP_SERVICES" start "Levantando servicios LAMP"
+            _pausa ;;
+
+        p|P)
+            _gestion_servicio "$LAMP_SERVICES" stop "Deteniendo servicios LAMP"
+            _pausa ;;
+
+        r|R)
+            _gestion_servicio "$LAMP_SERVICES" restart "Reiniciando servicios LAMP"
+            _pausa ;;
 
         a|A)
             echo ""
             if [ -f "$STRICT_MODE_BACKUP" ]; then
-                (sudo cp "$STRICT_MODE_BACKUP" "$STRICT_MODE_FILE" && sudo systemctl restart mysql) &
+                (sudo cp "$STRICT_MODE_BACKUP" "$STRICT_MODE_FILE" && sudo systemctl restart "$DB_SERVICE") &
                 _progreso $! "Activando StrictMode"
             else
-                echo -e "  ${RED}⚠ Error: Archivo backup no encontrado en $STRICT_MODE_BACKUP${NC}"
+                echo -e "${RED}⚠ Error: Archivo backup no encontrado en $STRICT_MODE_BACKUP${NC}"
             fi
             _pausa ;;
 
         d|D)
             echo ""
-            (sudo rm -f "$STRICT_MODE_FILE" && sudo systemctl restart mysql) &
+            (sudo rm -f "$STRICT_MODE_FILE" && sudo systemctl restart "$DB_SERVICE") &
             _progreso $! "Desactivando StrictMode"
             _pausa ;;
 
@@ -157,14 +182,12 @@ do
             fi
 
             idx=$((opc-1))
-            if [ $idx -ge 0 ] && [ $idx -lt ${#VERSIONES_PHP[@]} ]; then
-                echo ""
+            if [ $idx -ge 0 ] && [ $idx -lt "${#VERSIONES_PHP[@]}" ]; then
                 _cambiar_php "${VERSIONES_PHP[$idx]}"
                 _pausa
             else
                 echo -e "\n  ${RED}⚠ Opción inválida${NC}" ; sleep 1
-            fi
-            ;;
+            fi ;;
         *)
             echo -e "\n  ${RED}⚠ Opción inválida${NC}" ; sleep 1 ;;
     esac
