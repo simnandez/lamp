@@ -1,56 +1,82 @@
 #!/bin/bash
 
+# Salir si hay errores, variables no definidas o fallos en tuberías
+set -euo pipefail
+
 # ==============================================================================
-# FUNCIÓN DE CONFIRMACIÓN
+# CONFIGURACIÓN Y COLORES
 # ==============================================================================
+DB_ROOT_PASS="123456"
+CURRENT_USER=$(logname || echo $USER)
+PHP_VERSIONS=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
+
+VERDE="\e[1;32m"
+ROJO="\e[1;31m"
+AMARILLO="\e[1;33m"
+AZUL="\e[1;34m"
+RESET="\e[0m"
+
+# ==============================================================================
+# FUNCIONES AUXILIARES
+# ==============================================================================
+log_info()    { echo -e "${AZUL}[INFO]${RESET} $1"; }
+log_success() { echo -e "${VERDE}[OK]${RESET} $1"; }
+log_error()   { echo -e "${ROJO}[ERROR]${RESET} $1"; }
+
 confirmar_paso() {
-    echo -e "\n\e[1;33m¿Desea ejecutar: $1? (s/n)\e[0m"
+    echo -e "\n${AMARILLO}¿Deseas ejecutar: $1? (s/n)${RESET}"
     read -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Ss]$ ]]; then
-        echo -e "\e[1;31m[SALTADO]\e[0m $1"
-        return 1
-    fi
-    return 0
+    [[ $REPLY =~ ^[Ss]$ ]]
 }
 
-# Comprobar si se ejecuta como root
+# Comprobar root
 if [[ $EUID -ne 0 ]]; then
-   echo "Este script debe ejecutarse como root (usa sudo)."
+   log_error "Este script debe ejecutarse como root (usa sudo)."
    exit 1
 fi
 
-# Configuración de variables
-DB_ROOT_PASS="123456"
-CURRENT_USER=$(logname || whoami)
-PHP_VERSIONS=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
-
-# 1. Actualización e instalación base
-if confirmar_paso "Actualización e instalación de Apache y MariaDB"; then
-    apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https
+# ==============================================================================
+# 1. ACTUALIZACIÓN E INSTALACIÓN BASE
+# ==============================================================================
+if confirmar_paso "Actualización e instalación de base (Apache, MariaDB, Utilerías)"; then
+    apt update
+    apt install -y apache2 mariadb-server wget lsb-release ca-certificates apt-transport-https gnupg2 curl
 fi
 
-# 2. Securizar MariaDB y configurar root
-if confirmar_paso "Configuración de seguridad y clave root para MariaDB"; then
-    mariadb_secure_installation
+# ==============================================================================
+# 2. CONFIGURACIÓN DE SEGURIDAD MARIADB (AUTOMATIZADA)
+# ==============================================================================
+if confirmar_paso "Configurar MariaDB (Password Root y Seguridad)"; then
+    log_info "Asegurando MariaDB y configurando root..."
     mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"
-    mysql -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;"
+    mysql -e "DELETE FROM mysql.user WHERE User='';"
+    mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+    mysql -e "DROP DATABASE IF EXISTS test;"
+    mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
     mysql -e "FLUSH PRIVILEGES;"
+    log_success "Base de datos configurada y asegurada."
 fi
 
-# 3. Permisos de directorio web
-if confirmar_paso "Configurar permisos de grupo y escritura en /var/www/html"; then
-    chgrp -R www-data /var/www/html/
-    chmod -R g+w /var/www/html/
-    find /var/www/html/ -type d -exec chmod 2775 {} \;
-    find /var/www/html/ -type f -exec chmod ug+rw {} \;
-    usermod -a -G www-data "$CURRENT_USER"
-    echo "Usuario $CURRENT_USER añadido al grupo www-data."
+# ==============================================================================
+# 3. MODO NO ESTRICTO MARIADB
+# ==============================================================================
+if confirmar_paso "Configurar MariaDB en modo NO ESTRICTO"; then
+    log_info "Cambiando sql_mode..."
+    cat <<EOF > /etc/mysql/conf.d/disable_strict_mode.cnf.back
+[mysqld]
+sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+EOF
+    log_success "Modo estricto desactivado."
 fi
 
-# 4. Repositorio de PHP (Sury)
+# ==============================================================================
+# 4. REPOSITORIO SURY (MÉTODO MODERNO)
+# ==============================================================================
 if confirmar_paso "Añadir repositorio PHP de Sury.org"; then
-    wget -qO - https://packages.sury.org/php/README.txt | bash -x
+    log_info "Instalando llaves y repo de Sury..."
+    curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
+    echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
     apt update
 fi
 
@@ -89,17 +115,13 @@ EOF
     done
 fi
 
-# 6. MySQL Strict Mode
-if confirmar_paso "Configurar MariaDB en modo NO ESTRICTO"; then
-    cat <<EOF > /etc/mysql/conf.d/enable_strict_mode.cnf.back
-[mysqld]
-sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
-EOF
-fi
-
-# 7. ModRewrite y Configuración Apache
+# ==============================================================================
+# 6. APACHE Y PERMISOS DE DIRECTORIO
+# ==============================================================================
 if confirmar_paso "Habilitar ModRewrite y configurar permisos en Apache"; then
+    log_info "Configurando Apache y permisos de /var/www/html..."
     a2enmod rewrite
+
     CONF_FILE="/etc/apache2/sites-available/000-default.conf"
     if ! grep -q "<Directory /var/www/html>" "$CONF_FILE"; then
         sed -i '/DocumentRoot \/var\/www\/html/a \
@@ -109,24 +131,35 @@ if confirmar_paso "Habilitar ModRewrite y configurar permisos en Apache"; then
             Require all granted\
         </Directory>' "$CONF_FILE"
     fi
+
+    # Ajuste de permisos
+    chown -R www-data:www-data /var/www/html
+    find /var/www/html -type d -exec chmod 2775 {} \;
+    find /var/www/html -type f -exec chmod 0664 {} \;
+    usermod -aG www-data "$CURRENT_USER"
 fi
 
-# 8. Logs en tmpfs
+# ==============================================================================
+# 7. LOGS EN RAM (TMPFS)
+# ==============================================================================
 if confirmar_paso "Configurar logs de Apache y MySQL en RAM (tmpfs)"; then
+    log_info "Configurando tmpfiles para logs..."
     cat <<EOF > /etc/tmpfiles.d/tmpfslogs.conf
 d /var/log/apache2 755 root adm -
 d /var/log/mysql 2755 mysql adm -
 EOF
 fi
 
-# Reiniciar servicios
+# ==============================================================================
+# REINICIO Y FINALIZACIÓN
+# ==============================================================================
 if confirmar_paso "Reiniciar servicios para aplicar cambios"; then
-    systemctl restart apache2
-    systemctl restart mariadb
+    systemctl restart apache2 mariadb
 fi
 
-echo "------------------------------------------------"
-echo -e "\e[1;32m¡Proceso finalizado!\e[0m"
-echo "Recordatorio: El usuario '$CURRENT_USER' ha sido procesado."
-echo "Si el usuario cambió de grupo, cierra sesión para que sea efectivo."
-echo "------------------------------------------------"
+echo -e "\n${VERDE}================================================${RESET}"
+echo -e "${VERDE}¡PROCESO FINALIZADO CON ÉXITO!${RESET}"
+echo -e "Usuario '${CURRENT_USER}' listo."
+echo -e "SQL Mode: No Estricto configurado."
+echo -e "Xdebug: Puerto 9003."
+echo -e "${VERDE}================================================${RESET}\n"
