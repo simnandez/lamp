@@ -49,11 +49,12 @@ fi
 # ==============================================================================
 if confirmar_paso "Configurar MariaDB (Password Root y Seguridad)"; then
     log_info "Asegurando MariaDB y configurando root..."
-    mysql -u root -p'123456' -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"
+    mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"
     mysql -u root -p'123456' -e "DELETE FROM mysql.user WHERE User='';"
     mysql -u root -p'123456' -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
     mysql -u root -p'123456' -e "DROP DATABASE IF EXISTS test;"
     mysql -u root -p'123456' -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+    mysql -u root -p'123456' -e "GRANT ALL ON *.* TO 'root'@'localhost' IDENTIFIED BY '123456' WITH GRANT OPTION;
     mysql -u root -p'123456' -e "FLUSH PRIVILEGES;"
     log_success "Base de datos configurada y asegurada."
 fi
