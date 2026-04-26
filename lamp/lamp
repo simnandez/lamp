@@ -80,7 +80,7 @@ _info_actual() {
 _cambiar_php() {
     local v=$1
 
-    if [ ! -f "/etc/apache2/mods-available/php$v.load" ]; then
+    if [ ! -f "/usr/bin/php$v" ]; then
         echo -e "${RED}⚠ Error: La versión PHP $v no está instalada.${NC}"
         return 1
     fi
