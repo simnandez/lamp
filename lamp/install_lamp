@@ -41,7 +41,7 @@ fi
 # ==============================================================================
 if confirmar_paso "Actualización e instalación de base (Apache, MariaDB, Utilerías)"; then
     apt update
-    apt install -y apache2 mariadb-server wget lsb-release ca-certificates apt-transport-https gnupg2 curl
+    apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl
 fi
 
 # ==============================================================================
