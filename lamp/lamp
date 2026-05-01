@@ -49,10 +49,12 @@ _progreso() {
         done
     done
     wait $pid
+    echo -ne "\b "
+    echo -e ""
     if [ $? -eq 0 ]; then
-        echo -e "\b${GREEN}✔ Finalizado con éxito${NC}"
+        echo -e "  ${GREEN}✔ Finalizado con éxito${NC}"
     else
-        echo -e "\b${RED}✘ Hubo un error${NC}"
+        echo -e "  ${RED}✘ Hubo un error${NC}"
     fi
 }
 
