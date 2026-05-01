@@ -23,8 +23,8 @@ CHECK="✔"; ERROR="✖"; INFO="ℹ"; GEAR="⚙"; STAR="⭐"
 print_banner() {
     clear
     echo -e "${CIAN}######################################################################${RESET}"
-    echo -e "${CIAN}#${RESET}  ${BOLD}LAMP INSTALLER${RESET}                                ${CIAN}#${RESET}"
-    echo -e "${CIAN}#${RESET}  ${AZUL}Usuario:${RESET} $CURRENT_USER | ${AZUL}OS:${RESET} $(lsb_release -si) $(lsb_release -sr)          ${CIAN}#${RESET}"
+    echo -e "${CIAN}${RESET}  ${BOLD}LAMP INSTALLER 8.5.0${RESET}                                ${CIAN}${RESET}"
+    echo -e "${CIAN}${RESET}  ${AZUL}Usuario:${RESET} $CURRENT_USER | ${AZUL}OS:${RESET} $(lsb_release -si) $(lsb_release -sr)          ${CIAN}${RESET}"
     echo -e "${CIAN}######################################################################${RESET}\n"
 }
 
@@ -38,7 +38,7 @@ log_success() { echo -e "  ${VERDE}${CHECK} [OK]${RESET} $1"; }
 log_error()   { echo -e "  ${ROJO}${ERROR} [ERROR]${RESET} $1"; }
 
 confirmar_paso() {
-    echo -e -n "\n  ${AMARILLO}${GEAR}  ¿Deseas ejecutar: ${BOLD}$1?${RESET} (s/n): "
+    echo -e -n "\n  ${AMARILLO}${GEAR}  ¿Deseas ${BOLD}$1?${RESET} (s/n): "
     read -n 1 -r
     echo -e "\n"
     [[ $REPLY =~ ^[Ss]$ ]]
@@ -85,7 +85,7 @@ fi
 # 3. MODO NO ESTRICTO MARIADB
 # ==============================================================================
 log_section "AJUSTES DE SQL MODE"
-if confirmar_paso "Desactivar MODO ESTRICTO en MariaDB"; then
+if confirmar_paso "poder usar MODO ESTRICTO en MariaDB"; then
     log_info "Generando archivo de configuración en /etc/mysql/conf.d/..."
     cat <<EOF > /etc/mysql/conf.d/disable_strict_mode.cnf.back
 [mysqld]
@@ -98,7 +98,7 @@ fi
 # 4. REPOSITORIO SURY
 # ==============================================================================
 log_section "REPOSITORIO PHP (SURY.ORG)"
-if confirmar_paso "Añadir repositorio de versiones múltiples"; then
+if confirmar_paso "Añadir repositorio de versiones múltiples de php"; then
     log_info "Importando llaves GPG y configurando sources.list..."
     curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
     echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
@@ -116,8 +116,8 @@ declare -A PHP_API=(
 )
 
 log_section "INSTALACIÓN MULTI-PHP Y XDEBUG"
-if confirmar_paso "Instalar versiones: ${PHP_VERSIONS[*]}"; then
-    for ver in "${PHP_VERSIONS[@]}"; do
+for ver in "${PHP_VERSIONS[@]}"; do
+    if confirmar_paso "Instalar PHP $ver"; then
         echo -e "  ${BOLD}➜ Instalando PHP $ver...${RESET}"
         apt install -y php$ver php$ver-{xdebug,curl,gd,xml,mysql,mbstring,soap,intl,zip,imap,cgi} > /dev/null 2>&1 || log_error "No se pudo instalar PHP $ver (puede que aún no esté disponible)"
 
@@ -142,14 +142,14 @@ xdebug.mode=debug
 EOF
             log_success "PHP $ver y Xdebug listos."
         fi
-    done
-fi
+    fi
+done
 
 # ==============================================================================
 # 6. APACHE Y PERMISOS
 # ==============================================================================
 log_section "CONFIGURACIÓN DE APACHE Y PERMISOS"
-if confirmar_paso "Habilitar ModRewrite y ajustar permisos de carpeta"; then
+if confirmar_paso "Habilitar ModRewrite y ajustar permisos de carpeta html"; then
     log_info "Activando mod_rewrite..."
     a2enmod rewrite > /dev/null 2>&1
 
@@ -175,7 +175,7 @@ fi
 # 7. LOGS EN RAM (TMPFS)
 # ==============================================================================
 log_section "OPTIMIZACIÓN DE LOGS (RAM)"
-if confirmar_paso "Mover logs a tmpfs (RAM)"; then
+if confirmar_paso "Mover logs a tmpfs (Recomendable para Discos SSD)"; then
     log_info "Configurando /etc/tmpfiles.d/tmpfslogs.conf..."
     cat <<EOF > /etc/tmpfiles.d/tmpfslogs.conf
 d /var/log/apache2 755 root adm -
@@ -195,10 +195,10 @@ fi
 
 # Resumen final tipo Card
 echo -e "\n${VERDE}┌────────────────────────────────────────────────────────────┐${RESET}"
-echo -e "${VERDE}│${RESET}   ${BOLD}${STAR}  ¡TODO LISTO! EL ENTORNO HA SIDO CONFIGURADO       ${STAR}  ${VERDE}│${RESET}"
+echo -e "${VERDE}│${RESET}  ${BOLD}${STAR}  ¡TODO LISTO! EL ENTORNO HA SIDO CONFIGURADO       ${STAR}  ${VERDE}│${RESET}"
 echo -e "${VERDE}├────────────────────────────────────────────────────────────┤${RESET}"
-echo -e "${VERDE}│${RESET}  ${BOLD}Usuario:${RESET}  $(printf '%-45s' "$CURRENT_USER") ${VERDE}│${RESET}"
-echo -e "${VERDE}│${RESET}  ${BOLD}MariaDB:${RESET}  $(printf '%-45s' "Root Pass: $DB_ROOT_PASS | Mode: No Estricto") ${VERDE}│${RESET}"
-echo -e "${VERDE}│${RESET}  ${BOLD}Xdebug:${RESET}   $(printf '%-45s' "Puerto: 9003") ${VERDE}│${RESET}"
-echo -e "${VERDE}│${RESET}  ${BOLD}Apache:${RESET}   $(printf '%-45s' "ModRewrite: Activo") ${VERDE}│${RESET}"
+echo -e "${VERDE}│${RESET}  ${BOLD}Usuario:${RESET}  $(printf '%-47s' "$CURRENT_USER") ${VERDE}│${RESET}"
+echo -e "${VERDE}│${RESET}  ${BOLD}MariaDB:${RESET}  $(printf '%-47s' "Root Pass: $DB_ROOT_PASS | Mode: No Estricto") ${VERDE}│${RESET}"
+echo -e "${VERDE}│${RESET}  ${BOLD}Xdebug:${RESET}   $(printf '%-47s' "Puerto: 9003") ${VERDE}│${RESET}"
+echo -e "${VERDE}│${RESET}  ${BOLD}Apache:${RESET}   $(printf '%-47s' "ModRewrite: Activo") ${VERDE}│${RESET}"
 echo -e "${VERDE}└────────────────────────────────────────────────────────────┘${RESET}\n"
