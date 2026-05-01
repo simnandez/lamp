@@ -30,26 +30,20 @@ show_progress() {
     echo -ne "  ${AZUL}${INFO} [INFO]${RESET} $message  "
 
     while kill -0 "$pid" 2>/dev/null; do
-        # Seleccionamos el caracter actual del spinner
         local char=${spin:$i:1}
-
-        # \b borra el último caracter para poner el nuevo
         echo -ne "\b$char"
-
-        # Incrementamos el índice circularmente
         i=$(( (i + 1) % 10 ))
         sleep 0.1
     done
 
     wait "$pid"
     local status=$?
-
-    # Borramos el último caracter del spinner y mostramos el resultado final
-    echo -ne "\b"
+    echo -ne "\b "
+    echo -e ""
     if [ $status -eq 0 ]; then
-        echo -e "${VERDE}${CHECK} [OK]${RESET} $message"
+        echo -e "  ${VERDE}${CHECK} [OK]${RESET} $message"
     else
-        echo -e "${ROJO}${ERROR} [ERROR]${RESET} Falló: $message"
+        echo -e "  ${ROJO}${ERROR} [ERROR]${RESET} Falló: $message"
     fi
 }
 
