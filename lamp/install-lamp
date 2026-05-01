@@ -38,7 +38,7 @@ log_success() { echo -e "  ${VERDE}${CHECK} [OK]${RESET} $1"; }
 log_error()   { echo -e "  ${ROJO}${ERROR} [ERROR]${RESET} $1"; }
 
 confirmar_paso() {
-    echo -e -n "\n  ${AMARILLO}${GEAR}  ¿Deseas ${BOLD}$1?${RESET} (s/n): "
+    echo -e -n "\n  ${AMARILLO}${GEAR}  ¿${BOLD}$1?${RESET} (s/n): "
     read -n 1 -r
     echo -e "\n"
     [[ $REPLY =~ ^[Ss]$ ]]
