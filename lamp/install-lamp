@@ -4,22 +4,55 @@
 set -euo pipefail
 
 # ==============================================================================
-# CONFIGURACIÓN Y COLORES (UI MEJORADA)
+# CONFIGURACIÓN Y COLORES
 # ==============================================================================
 DB_ROOT_PASS="123456"
 CURRENT_USER=$(logname || echo $USER)
 PHP_VERSIONS=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
 
-# Paleta de colores extendida
 ROJO='\033[0;31m'; VERDE='\033[0;32m'; AMARILLO='\033[1;33m'; AZUL='\033[0;34m'
 MAGENTA='\033[0;35m'; CIAN='\033[0;36m'; BLANCO='\033[1;37m'; BOLD='\033[1m'; RESET='\033[0m'
 
-# Iconos
 CHECK="✔"; ERROR="✖"; INFO="ℹ"; GEAR="⚙"; STAR="⭐"
 
 # ==============================================================================
 # FUNCIONES DE INTERFAZ (UI)
 # ==============================================================================
+# Recibe el PID del proceso y el mensaje a mostrar
+show_progress() {
+    local pid=$1
+    local message=$2
+    # Caracteres de rotación
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+
+    # Imprimimos el mensaje inicial
+    echo -ne "  ${AZUL}${INFO} [INFO]${RESET} $message  "
+
+    while kill -0 "$pid" 2>/dev/null; do
+        # Seleccionamos el caracter actual del spinner
+        local char=${spin:$i:1}
+
+        # \b borra el último caracter para poner el nuevo
+        echo -ne "\b$char"
+
+        # Incrementamos el índice circularmente
+        i=$(( (i + 1) % 10 ))
+        sleep 0.1
+    done
+
+    wait "$pid"
+    local status=$?
+
+    # Borramos el último caracter del spinner y mostramos el resultado final
+    echo -ne "\b"
+    if [ $status -eq 0 ]; then
+        echo -e "${VERDE}${CHECK} [OK]${RESET} $message"
+    else
+        echo -e "${ROJO}${ERROR} [ERROR]${RESET} Falló: $message"
+    fi
+}
+
 print_banner() {
     clear
     echo -e "${CIAN}######################################################################${RESET}"
@@ -48,7 +81,6 @@ confirmar_paso() {
 # PRE-VUELO
 # ==============================================================================
 print_banner
-
 if [[ $EUID -ne 0 ]]; then
    log_error "Este script debe ejecutarse como root (usa sudo)."
    exit 1
@@ -59,10 +91,8 @@ fi
 # ==============================================================================
 log_section "ACTUALIZACIÓN E INSTALACIÓN BASE"
 if confirmar_paso "Instalar Apache, MariaDB y Herramientas"; then
-    log_info "Actualizando repositorios y descargando paquetes..."
-    apt update
-    apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl
-    log_success "Componentes base instalados correctamente."
+    (apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl) > /dev/null 2>&1 &
+    show_progress $! "Descargando e instalando componentes base"
 fi
 
 # ==============================================================================
@@ -70,10 +100,8 @@ fi
 # ==============================================================================
 log_section "CONFIGURACIÓN MARIADB"
 if confirmar_paso "Asegurar MariaDB y configurar root"; then
-    log_info "Aplicando políticas de seguridad y password..."
-
+    log_info "Aplicando políticas de seguridad..."
     export MYSQL_PWD="$DB_ROOT_PASS"
-
     mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"
     mysql -u root -e "DELETE FROM mysql.user WHERE User='';"
     mysql -u root -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
@@ -89,8 +117,7 @@ fi
 # 3. MODO NO ESTRICTO MARIADB
 # ==============================================================================
 log_section "AJUSTES DE SQL MODE"
-if confirmar_paso "poder usar MODO ESTRICTO en MariaDB"; then
-    log_info "Generando archivo de configuración en /etc/mysql/conf.d/..."
+if confirmar_paso "Poder usar MODO ESTRICTO en MariaDB"; then
     cat <<EOF > /etc/mysql/conf.d/disable_strict_mode.cnf.back
 [mysqld]
 sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
@@ -103,11 +130,10 @@ fi
 # ==============================================================================
 log_section "REPOSITORIO PHP (SURY.ORG)"
 if confirmar_paso "Añadir repositorio de versiones múltiples de php"; then
-    log_info "Importando llaves GPG y configurando sources.list..."
-    curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
-    echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list
-    apt update
-    log_success "Repositorio Sury configurado."
+    (curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list && \
+    apt update) > /dev/null 2>&1 &
+    show_progress $! "Configurando repositorio de Sury"
 fi
 
 # ==============================================================================
@@ -122,18 +148,22 @@ declare -A PHP_API=(
 log_section "INSTALACIÓN MULTI-PHP Y XDEBUG"
 for ver in "${PHP_VERSIONS[@]}"; do
     if confirmar_paso "Instalar PHP $ver"; then
-        echo -e "  ${BOLD}➜ Instalando PHP $ver...${RESET}"
-        apt install -y php$ver php$ver-{xdebug,curl,gd,xml,mysql,mbstring,soap,intl,zip,imap,cgi} > /dev/null 2>&1 || log_error "No se pudo instalar PHP $ver (puede que aún no esté disponible)"
 
-        if [[ "$ver" == "5.6" || "$ver" == "7.0" || "$ver" == "7.1" ]]; then
-            apt install -y php$ver-mcrypt php$ver-xmlrpc > /dev/null 2>&1
-        fi
+        # Ejecutamos la instalación en segundo plano
+        (
+            apt install -y php$ver php$ver-{xdebug,curl,gd,xml,mysql,mbstring,soap,intl,zip,imap,cgi} > /dev/null 2>&1
+            if [[ "$ver" == "5.6" || "$ver" == "7.0" || "$ver" == "7.1" ]]; then
+                apt install -y php$ver-mcrypt php$ver-xmlrpc > /dev/null 2>&1
+            fi
+        ) &
 
-        # Configuración de Xdebug
-        XDEBUG_INI="/etc/php/$ver/mods-available/xdebug.ini"
-        API_DIR=${PHP_API[$ver]}
+        # Mostramos los puntos mientras se instala
+        show_progress $! "Instalando PHP $ver y extensiones"
 
+        # Configuración de Xdebug (solo si se creó la carpeta)
         if [ -d "/etc/php/$ver" ]; then
+            XDEBUG_INI="/etc/php/$ver/mods-available/xdebug.ini"
+            API_DIR=${PHP_API[$ver]:-"unknown"}
             cat <<EOF > "$XDEBUG_INI"
 zend_extension="/usr/lib/php/$API_DIR/xdebug.so"
 xdebug.remote_enable=1
@@ -144,7 +174,6 @@ xdebug.remote_port=9003
 xdebug.max_nesting_level=300
 xdebug.mode=debug
 EOF
-            log_success "PHP $ver y Xdebug listos."
         fi
     fi
 done
@@ -154,9 +183,8 @@ done
 # ==============================================================================
 log_section "CONFIGURACIÓN DE APACHE Y PERMISOS"
 if confirmar_paso "Habilitar ModRewrite y ajustar permisos de carpeta html"; then
-    log_info "Activando mod_rewrite..."
+    log_info "Configurando Apache..."
     a2enmod rewrite > /dev/null 2>&1
-
     CONF_FILE="/etc/apache2/sites-available/000-default.conf"
     if ! grep -q "<Directory /var/www/html>" "$CONF_FILE"; then
         sed -i '/DocumentRoot \/var\/www\/html/a \
@@ -166,13 +194,11 @@ if confirmar_paso "Habilitar ModRewrite y ajustar permisos de carpeta html"; the
             Require all granted\
         </Directory>' "$CONF_FILE"
     fi
-
-    log_info "Aplicando permisos a /var/www/html..."
     chown -R www-data:www-data /var/www/html
     find /var/www/html -type d -exec chmod 2775 {} \;
     find /var/www/html -type f -exec chmod 0664 {} \;
     usermod -aG www-data "$CURRENT_USER"
-    log_success "Apache configurado y permisos aplicados."
+    log_success "Permisos aplicados."
 fi
 
 # ==============================================================================
@@ -180,7 +206,6 @@ fi
 # ==============================================================================
 log_section "OPTIMIZACIÓN DE LOGS (RAM)"
 if confirmar_paso "Mover logs a tmpfs (Recomendable para Discos SSD)"; then
-    log_info "Configurando /etc/tmpfiles.d/tmpfslogs.conf..."
     cat <<EOF > /etc/tmpfiles.d/tmpfslogs.conf
 d /var/log/apache2 755 root adm -
 d /var/log/mysql 2755 mysql adm -
@@ -193,11 +218,10 @@ fi
 # ==============================================================================
 log_section "FINALIZANDO INSTALACIÓN"
 if confirmar_paso "Reiniciar servicios"; then
-    systemctl restart apache2 mariadb
-    log_success "Servicios reiniciados."
+    (systemctl restart apache2 mariadb) &
+    show_progress $! "Reiniciando servicios del sistema"
 fi
 
-# Resumen final tipo Card
 echo -e "\n${VERDE}┌────────────────────────────────────────────────────────────┐${RESET}"
 echo -e "${VERDE}│${RESET}  ${BOLD}${STAR}  ¡TODO LISTO! EL ENTORNO HA SIDO CONFIGURADO       ${STAR}  ${VERDE}│${RESET}"
 echo -e "${VERDE}├────────────────────────────────────────────────────────────┤${RESET}"
