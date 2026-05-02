@@ -95,8 +95,8 @@ fi
 log_section "CONFIGURACIÓN MARIADB"
 if confirmar_paso "Asegurar MariaDB y configurar root"; then
     log_info "Aplicando políticas de seguridad..."
-    export MYSQL_PWD="$DB_ROOT_PASS"
     mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';"
+    export MYSQL_PWD="$DB_ROOT_PASS"
     mysql -u root -e "DELETE FROM mysql.user WHERE User='';"
     mysql -u root -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
     mysql -u root -e "DROP DATABASE IF EXISTS test;"
