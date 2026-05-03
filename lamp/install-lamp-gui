@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import sys
 import os
 import subprocess
@@ -70,7 +71,7 @@ class InstallWorker(QThread):
                 "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');",
                 "DROP DATABASE IF EXISTS test;",
                 "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';",
-                f"GRANT ALL ON *.* TO 'root'@'localhost' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION;",
+                "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;",
                 "FLUSH PRIVILEGES;"
             ]
             full_sql = " ".join(sql_commands)
