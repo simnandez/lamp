@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+import sys
+import os
+import subprocess
+import pwd
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QCheckBox, QPushButton, QTextEdit,
+                             QLabel, QGroupBox, QScrollArea, QMessageBox, QFrame)
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QFont
+
+# --- CONFIGURACIÓN DE INSTALACIÓN ---
+DB_ROOT_PASS = "123456"
+PHP_VERSIONS = ["5.6", "7.0", "7.1", "7.2", "7.3", "7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]
+PHP_API = {
+    "5.6": "20131226", "7.0": "20151012", "7.1": "20160303", "7.2": "20170718",
+    "7.3": "20180731", "7.4": "20190902", "8.0": "20200930", "8.1": "20210902",
+    "8.2": "20220829", "8.3": "20230831", "8.4": "20240924", "8.5": "20250925"
+}
+
+class InstallWorker(QThread):
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool)
+
+    def __init__(self, tasks, selected_php):
+        super().__init__()
+        self.tasks = tasks
+        self.selected_php = selected_php
+        self.real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
+        self.user_home = os.path.expanduser(f"~{self.real_user}")
+
+    def run_cmd(self, cmd, desc):
+        self.log_signal.emit(f"<b>[EJECUTANDO]</b> {desc}...")
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in process.stdout:
+            self.log_signal.emit(f"<span style='color: #888;'>&nbsp;&nbsp;{line.strip()}</span>")
+        process.wait()
+        return process.returncode == 0
+
+    def create_autostart(self):
+        dir_path = os.path.join(self.user_home, ".config", "autostart")
+        file_path = os.path.join(dir_path, "lamp-tray.desktop")
+        content = "[Desktop Entry]\nExec=lamp-tray\nIcon=network-server\nName=lamp-tray\nTerminal=false\nType=Application\n"
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            with open(file_path, "w") as f: f.write(content)
+            uid = pwd.getpwnam(self.real_user).pw_uid
+            gid = pwd.getpwnam(self.real_user).pw_gid
+            os.chown(file_path, uid, gid)
+            self.log_signal.emit("<span style='color: #27ae60;'>✔ Autostart creado.</span>")
+        except Exception as e:
+            self.log_signal.emit(f"<span style='color: #e74c3c;'>✘ Error en Autostart: {e}</span>")
+
+    def setup_tmpfs_logs(self):
+        conf = "d /var/log/apache2 755 root adm -\nd /var/log/mysql 2755 mysql adm -\n"
+        try:
+            with open('/etc/tmpfiles.d/tmpfslogs.conf', 'w') as f: f.write(conf)
+            self.log_signal.emit("<span style='color: #27ae60;'>✔ Logs en RAM configurados (tmpfs).</span>")
+        except Exception as e:
+            self.log_signal.emit(f"✘ Error en tmpfs: {e}")
+
+    def run(self):
+        if self.tasks['base']:
+            self.run_cmd("apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl", "Instalación Base")
+
+        if self.tasks['sql_sec']:
+            sql_commands = [
+                f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{DB_ROOT_PASS}';",
+                "DELETE FROM mysql.user WHERE User='';",
+                "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');",
+                "DROP DATABASE IF EXISTS test;",
+                "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';",
+                f"GRANT ALL ON *.* TO 'root'@'localhost' IDENTIFIED BY '{DB_ROOT_PASS}' WITH GRANT OPTION;",
+                "FLUSH PRIVILEGES;"
+            ]
+            full_sql = " ".join(sql_commands)
+            # Ejecutamos con la contraseña recién seteada por si se re-ejecuta el script
+            self.run_cmd(f"mysql -u root -e \"{full_sql}\"", "Asegurando MariaDB (limpieza completa)")
+
+        if self.tasks['sql_mode']:
+            path = '/etc/mysql/conf.d/disable_strict_mode.cnf.back'
+            conf = "[mysqld]\nsql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+            with open(path, 'w') as f: f.write(conf)
+
+        if self.tasks['sury']:
+            cmd = "curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg && echo \"deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main\" > /etc/apt/sources.list.d/php.list && apt update"
+            self.run_cmd(cmd, "Repositorio PHP")
+
+        # Lógica de Versiones PHP con comprobación de librerías antiguas
+        for ver in self.selected_php:
+            libs = f"php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
+            # Comprobación de versiones obsoletas (como el script bash)
+            if ver in ["5.6", "7.0", "7.1"]:
+                libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
+
+            if self.run_cmd(f"apt install -y {libs}", f"Instalando PHP {ver} y extensiones"):
+                ini = f"/etc/php/{ver}/mods-available/xdebug.ini"
+                if os.path.exists(os.path.dirname(ini)):
+                    api = PHP_API.get(ver, "unknown")
+                    with open(ini, 'w') as f:
+                        f.write(f'zend_extension="/usr/lib/php/{api}/xdebug.so"\nxdebug.mode=debug\nxdebug.remote_port=9003\nxdebug.remote_enable=1\n')
+
+        if self.tasks['apache']:
+            cmds = f"a2enmod rewrite && chown -R www-data:www-data /var/www/html && usermod -aG www-data {self.real_user} && systemctl restart apache2"
+            self.run_cmd(cmds, "Apache y Permisos")
+
+        if self.tasks['tmpfs']:
+            self.setup_tmpfs_logs()
+
+        if self.tasks['autostart']:
+            self.create_autostart()
+
+        self.finished_signal.emit(True)
+
+class LampGui(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Simnandez LAMP Installer 8.5.0")
+        self.setMinimumSize(720, 800)
+        self.init_ui()
+
+    def init_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setSpacing(8)
+
+        title = QLabel("Simnandez LAMP Stack installer")
+        title.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        self.opts_layout = QVBoxLayout(scroll_content)
+
+        # SERVIDORES
+        g_base = QGroupBox("Instalación Base")
+        v_base = QVBoxLayout()
+        self.chk_base = QCheckBox("Instalar Apache2, MariaDB y PHP"); self.chk_base.setChecked(True)
+        self.chk_sql_sec = QCheckBox("Asegurar MariaDB y configurar root")
+        self.chk_sql_mode = QCheckBox("Poder usar MODO ESTRICTO en MariaDB")
+        for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
+        g_base.setLayout(v_base); self.opts_layout.addWidget(g_base)
+
+        # PHP
+        g_php = QGroupBox("PHP (Repositorio Sury.org)")
+        v_php = QVBoxLayout()
+        self.chk_sury = QCheckBox("Añadir repositorio de múltiples versiones PHP")
+        v_php.addWidget(self.chk_sury)
+        php_grid = QWidget()
+        grid = QHBoxLayout(php_grid); grid.setContentsMargins(10,0,0,0)
+        self.php_checks = {}
+        c1, c2 = QVBoxLayout(), QVBoxLayout()
+        for i, v in enumerate(PHP_VERSIONS):
+            cb = QCheckBox(f"PHP {v}")
+            self.php_checks[v] = cb
+            if i < 6: c1.addWidget(cb)
+            else: c2.addWidget(cb)
+        grid.addLayout(c1); grid.addLayout(c2)
+        v_php.addWidget(php_grid); g_php.setLayout(v_php); self.opts_layout.addWidget(g_php)
+
+        # OPTIMIZACIÓN Y ESCRITORIO
+        g_ext = QGroupBox("Configuración Apache y permisos")
+        v_ext = QVBoxLayout()
+        self.chk_apache = QCheckBox("Habilitar ModRewrite y ajustar permisos en /var/www/html")
+        self.chk_tmpfs = QCheckBox("Mover logs a RAM (tmpfs) - Recomendado para SSD")
+        self.chk_autostart = QCheckBox("Añadir 'simnandez lamp tray' al Inicio Automático")
+        for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: v_ext.addWidget(c)
+        g_ext.setLayout(v_ext); self.opts_layout.addWidget(g_ext)
+
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, stretch=1)
+
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setFixedHeight(160)
+        self.console.setStyleSheet("""QTextEdit {background-color: #000000;color: #FFFFFF;font-family: 'Monospace';font-size: 10pt;border: 1px solid #444444;}""")
+        layout.addWidget(self.console)
+
+        self.btn = QPushButton(" INICIAR INSTALACIÓN")
+        self.btn.setFixedHeight(50)
+        self.btn.clicked.connect(self.start_process)
+        layout.addWidget(self.btn)
+
+    def log(self, text):
+        self.console.append(text)
+        self.console.verticalScrollBar().setValue(self.console.verticalScrollBar().maximum())
+
+    def start_process(self):
+        if os.geteuid() != 0:
+            QMessageBox.critical(self, "Error", "Debes ejecutar como root.")
+            return
+        tasks = {
+            'base': self.chk_base.isChecked(), 'sql_sec': self.chk_sql_sec.isChecked(),
+            'sql_mode': self.chk_sql_mode.isChecked(), 'sury': self.chk_sury.isChecked(),
+            'apache': self.chk_apache.isChecked(), 'tmpfs': self.chk_tmpfs.isChecked(),
+            'autostart': self.chk_autostart.isChecked()
+        }
+        selected_php = [v for v, cb in self.php_checks.items() if cb.isChecked()]
+        self.btn.setEnabled(False)
+        self.console.clear()
+        self.worker = InstallWorker(tasks, selected_php)
+        self.worker.log_signal.connect(self.log)
+        self.worker.finished_signal.connect(lambda: self.btn.setEnabled(True))
+        self.worker.start()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    win = LampGui()
+    win.show()
+    sys.exit(app.exec())
