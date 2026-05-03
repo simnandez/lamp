@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import subprocess
+import glob
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QPen, QBrush
+from PyQt6.QtCore import QTimer, Qt
+
+# --- CONFIGURACIÓN ---
+STRICT_MODE_FILE = "/etc/mysql/conf.d/enable_strict_mode.cnf"
+STRICT_MODE_BACKUP = "/etc/mysql/conf.d/enable_strict_mode.cnf.back"
+
+def to_bold_unicode(text):
+    normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    bold = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝗫𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    table = str.maketrans(normal, bold)
+    return text.translate(table)
+
+def get_db_service():
+    if subprocess.run("systemctl list-unit-files mariadb.service", shell=True, capture_output=True).returncode == 0:
+        return "mariadb"
+    return "mysql"
+
+def get_active_php():
+    try:
+        cmd = "php -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;'"
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
+    except:
+        return None
+
+class LampIndicator:
+    def __init__(self):
+        self.app = QApplication(sys.argv)
+        self.app.setQuitOnLastWindowClosed(False)
+        self.db_service = get_db_service()
+        
+        self.menu = QMenu()
+        self.tray = QSystemTrayIcon()
+        self.tray.setContextMenu(self.menu)
+        
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_ui)
+        self.timer.start(4000)
+        
+        self.update_ui()
+        self.tray.show()
+
+    def create_custom_round_icon(self, color_hex):
+        pixmap = QPixmap(22, 22)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(color_hex)
+        painter.setPen(QPen(color.darker(140), 1.2))
+        painter.setBrush(QBrush(color))
+        painter.drawEllipse(3, 3, 16, 16)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(255, 255, 255, 60)))
+        painter.drawEllipse(6, 4, 10, 5)
+        painter.setPen(QPen(Qt.GlobalColor.white, 2.5))
+        painter.drawLine(9, 8, 9, 14)
+        painter.drawLine(9, 14, 13, 14)
+        painter.end()
+        return QIcon(pixmap)
+
+    def create_dot_icon(self, color_hex, size=14):
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor(color_hex))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+        painter.end()
+        return QIcon(pixmap)
+
+    def run_gui_sudo(self, cmd):
+        """Lanza el comando usando pkexec para mostrar el diálogo de contraseña de KDE."""
+        # Usamos bash -c para que pkexec pueda manejar comandos complejos con pipes o bucles
+        full_cmd = f"pkexec bash -c '{cmd}'"
+        try:
+            subprocess.Popen(full_cmd, shell=True)
+        except Exception as e:
+            print(f"Error al lanzar pkexec: {e}")
+
+    def update_ui(self):
+        apache_active = subprocess.run("systemctl is-active --quiet apache2", shell=True).returncode == 0
+        db_active = subprocess.run(f"systemctl is-active --quiet {self.db_service}", shell=True).returncode == 0
+        
+        color = "#27ae60" if apache_active and db_active else "#e74c3c"
+        self.tray.setIcon(self.create_custom_round_icon(color))
+        
+        if self.menu.isHidden():
+            self.refresh_menu(apache_active, db_active)
+
+    def refresh_menu(self, apache_on, db_on):
+        self.menu.clear()
+        VERDE, ROJO = "#27ae60", "#e74c3c"
+        
+        self.menu.addAction(self.create_dot_icon(VERDE if apache_on else ROJO), f"Apache: {'ENCENDIDO' if apache_on else 'APAGADO'}")
+        self.menu.addAction(self.create_dot_icon(VERDE if db_on else ROJO), f"{self.db_service.upper()}: {'ENCENDIDO' if db_on else 'APAGADO'}")
+        
+        is_strict = os.path.exists(STRICT_MODE_FILE)
+        self.menu.addAction(self.create_dot_icon(VERDE if is_strict else ROJO), f"Strict Mode: {'ACTIVO' if is_strict else 'INACTIVO'}")
+        self.menu.addSeparator()
+
+        self.menu.addAction(QIcon.fromTheme("media-playback-start"), "Iniciar LAMP", 
+                           lambda: self.run_gui_sudo(f"systemctl start apache2 {self.db_service}"))
+        self.menu.addAction(QIcon.fromTheme("view-refresh"), "Reiniciar LAMP", 
+                           lambda: self.run_gui_sudo(f"systemctl restart apache2 {self.db_service}"))
+        self.menu.addAction(QIcon.fromTheme("media-playback-stop"), "Parar LAMP", 
+                           lambda: self.run_gui_sudo(f"systemctl stop apache2 {self.db_service}"))
+        self.menu.addSeparator()
+
+        label_st = "Desactivar Strict Mode" if is_strict else "Activar Strict Mode"
+        self.menu.addAction(QIcon.fromTheme("security-high"), label_st, lambda: self.toggle_strict(not is_strict))
+        self.menu.addSeparator()
+
+        active_php = get_active_php()
+        php_paths = sorted(glob.glob("/usr/bin/php[0-9].[0-9]"), reverse=True)
+        for path in php_paths:
+            ver = os.path.basename(path).replace("php", "")
+            is_act = (ver == active_php)
+            icon = QIcon.fromTheme("emblem-success-symbolic") if is_act else QIcon()
+            label = to_bold_unicode(f"PHP {ver} (ACTIVA)") if is_act else f"PHP {ver}"
+            action = QAction(icon, label, self.menu)
+            action.triggered.connect(lambda checked, v=ver: self.change_php(v))
+            self.menu.addAction(action)
+
+        self.menu.addSeparator()
+        self.menu.addAction(QIcon.fromTheme("application-exit"), "Salir", self.app.quit)
+
+    def toggle_strict(self, activate):
+        if activate:
+            self.run_gui_sudo(f"cp {STRICT_MODE_BACKUP} {STRICT_MODE_FILE} && systemctl restart {self.db_service}")
+        else:
+            self.run_gui_sudo(f"rm -f {STRICT_MODE_FILE} && systemctl restart {self.db_service}")
+
+    def change_php(self, v):
+        # Comando optimizado para ejecutarse dentro de un solo pkexec
+        cmd = (
+            f"for mod in /etc/apache2/mods-enabled/php*.load; do "
+            f"  [ -e \"$mod\" ] && a2dismod \"$(basename \"$mod\" .load)\"; "
+            f"done; "
+            f"a2enmod php{v} && "
+            f"update-alternatives --set php /usr/bin/php{v} && "
+            f"systemctl restart apache2"
+        )
+        self.run_gui_sudo(cmd)
+
+if __name__ == "__main__":
+    indicator = LampIndicator()
+    sys.exit(indicator.app.exec())
