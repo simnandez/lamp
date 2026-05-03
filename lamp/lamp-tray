@@ -103,7 +103,7 @@ class LampIndicator:
         self.menu.addAction(self.create_dot_icon(VERDE if db_on else ROJO), f"{self.db_service.upper()}: {'ENCENDIDO' if db_on else 'APAGADO'}")
         
         is_strict = os.path.exists(STRICT_MODE_FILE)
-        self.menu.addAction(self.create_dot_icon(VERDE if is_strict else ROJO), f"Strict Mode: {'ACTIVO' if is_strict else 'INACTIVO'}")
+        self.menu.addAction(self.create_dot_icon(ROJO if is_strict else VERDE), f"Strict Mode: {'ACTIVO' if is_strict else 'INACTIVO'}")
         self.menu.addSeparator()
 
         self.menu.addAction(QIcon.fromTheme("media-playback-start"), "Iniciar LAMP", 
