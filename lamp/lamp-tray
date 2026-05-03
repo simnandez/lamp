@@ -4,7 +4,7 @@ import sys
 import os
 import subprocess
 import glob
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QPen, QBrush
 from PyQt6.QtCore import QTimer, Qt
 
@@ -28,22 +28,22 @@ def get_active_php():
         cmd = "php -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;'"
         return subprocess.check_output(cmd, shell=True, text=True).strip()
     except:
-        return None
+        return "N/A"
 
 class LampIndicator:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
         self.db_service = get_db_service()
-        
+
         self.menu = QMenu()
         self.tray = QSystemTrayIcon()
         self.tray.setContextMenu(self.menu)
-        
+
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_ui)
         self.timer.start(4000)
-        
+
         self.update_ui()
         self.tray.show()
 
@@ -77,8 +77,6 @@ class LampIndicator:
         return QIcon(pixmap)
 
     def run_gui_sudo(self, cmd):
-        """Lanza el comando usando pkexec para mostrar el diálogo de contraseña de KDE."""
-        # Usamos bash -c para que pkexec pueda manejar comandos complejos con pipes o bucles
         full_cmd = f"pkexec bash -c '{cmd}'"
         try:
             subprocess.Popen(full_cmd, shell=True)
@@ -88,37 +86,53 @@ class LampIndicator:
     def update_ui(self):
         apache_active = subprocess.run("systemctl is-active --quiet apache2", shell=True).returncode == 0
         db_active = subprocess.run(f"systemctl is-active --quiet {self.db_service}", shell=True).returncode == 0
-        
+        is_strict = os.path.exists(STRICT_MODE_FILE)
+        active_php = get_active_php()
+
         color = "#27ae60" if apache_active and db_active else "#e74c3c"
         self.tray.setIcon(self.create_custom_round_icon(color))
-        
-        if self.menu.isHidden():
-            self.refresh_menu(apache_active, db_active)
 
-    def refresh_menu(self, apache_on, db_on):
+        st_ap = "✅ ON" if apache_active else "❌ OFF"
+        st_db = "✅ ON" if db_active else "❌ OFF"
+        st_str = "⚠️ ACTIVO" if is_strict else "DESACTIVADO"
+
+        titulo_bold = to_bold_unicode("ESTADO SERVICIOS LAMP")
+        self.tray.setToolTip(
+            f"{titulo_bold}\n\n"
+            f"Apache: {st_ap}\n"
+            f"{self.db_service.capitalize()}: {st_db}\n"
+            f"Strict Mode: {st_str}\n"
+            f"PHP: {active_php}"
+        )
+
+        if self.menu.isHidden():
+            self.refresh_menu(apache_active, db_active, is_strict, active_php)
+
+    def refresh_menu(self, apache_on, db_on, is_strict, active_php):
         self.menu.clear()
         VERDE, ROJO = "#27ae60", "#e74c3c"
-        
+
+        # Estados
         self.menu.addAction(self.create_dot_icon(VERDE if apache_on else ROJO), f"Apache: {'ENCENDIDO' if apache_on else 'APAGADO'}")
         self.menu.addAction(self.create_dot_icon(VERDE if db_on else ROJO), f"{self.db_service.upper()}: {'ENCENDIDO' if db_on else 'APAGADO'}")
-        
-        is_strict = os.path.exists(STRICT_MODE_FILE)
         self.menu.addAction(self.create_dot_icon(ROJO if is_strict else VERDE), f"Strict Mode: {'ACTIVO' if is_strict else 'INACTIVO'}")
         self.menu.addSeparator()
 
-        self.menu.addAction(QIcon.fromTheme("media-playback-start"), "Iniciar LAMP", 
+        # Controles principales
+        self.menu.addAction(QIcon.fromTheme("media-playback-start"), "Iniciar LAMP",
                            lambda: self.run_gui_sudo(f"systemctl start apache2 {self.db_service}"))
-        self.menu.addAction(QIcon.fromTheme("view-refresh"), "Reiniciar LAMP", 
+        self.menu.addAction(QIcon.fromTheme("view-refresh"), "Reiniciar LAMP",
                            lambda: self.run_gui_sudo(f"systemctl restart apache2 {self.db_service}"))
-        self.menu.addAction(QIcon.fromTheme("media-playback-stop"), "Parar LAMP", 
+        self.menu.addAction(QIcon.fromTheme("media-playback-stop"), "Parar LAMP",
                            lambda: self.run_gui_sudo(f"systemctl stop apache2 {self.db_service}"))
         self.menu.addSeparator()
 
+        # Toggle Strict Mode
         label_st = "Desactivar Strict Mode" if is_strict else "Activar Strict Mode"
         self.menu.addAction(QIcon.fromTheme("security-high"), label_st, lambda: self.toggle_strict(not is_strict))
         self.menu.addSeparator()
 
-        active_php = get_active_php()
+        # Selector de Versión PHP
         php_paths = sorted(glob.glob("/usr/bin/php[0-9].[0-9]"), reverse=True)
         for path in php_paths:
             ver = os.path.basename(path).replace("php", "")
@@ -139,7 +153,6 @@ class LampIndicator:
             self.run_gui_sudo(f"rm -f {STRICT_MODE_FILE} && systemctl restart {self.db_service}")
 
     def change_php(self, v):
-        # Comando optimizado para ejecutarse dentro de un solo pkexec
         cmd = (
             f"for mod in /etc/apache2/mods-enabled/php*.load; do "
             f"  [ -e \"$mod\" ] && a2dismod \"$(basename \"$mod\" .load)\"; "
