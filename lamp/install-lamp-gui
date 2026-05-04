@@ -89,7 +89,7 @@ class InstallWorker(QThread):
 
         # Lógica de Versiones PHP con comprobación de librerías antiguas
         for ver in self.selected_php:
-            libs = f"php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
+            libs = f"php{ver} libapache2-mod-php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
             # Comprobación de versiones obsoletas (como el script bash)
             if ver in ["5.6", "7.0", "7.1"]:
                 libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
