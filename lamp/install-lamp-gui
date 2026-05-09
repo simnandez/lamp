@@ -75,7 +75,6 @@ class InstallWorker(QThread):
                 "FLUSH PRIVILEGES;"
             ]
             full_sql = " ".join(sql_commands)
-            # Ejecutamos con la contraseña recién seteada por si se re-ejecuta el script
             self.run_cmd(f"mysql -u root -e \"{full_sql}\"", "Asegurando MariaDB (limpieza completa)")
 
         if self.tasks['sql_mode']:
@@ -87,10 +86,8 @@ class InstallWorker(QThread):
             cmd = "curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg && echo \"deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main\" > /etc/apt/sources.list.d/php.list && apt update"
             self.run_cmd(cmd, "Repositorio PHP")
 
-        # Lógica de Versiones PHP con comprobación de librerías antiguas
         for ver in self.selected_php:
             libs = f"php{ver} libapache2-mod-php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
-            # Comprobación de versiones obsoletas (como el script bash)
             if ver in ["5.6", "7.0", "7.1"]:
                 libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
 
@@ -116,7 +113,7 @@ class InstallWorker(QThread):
 class LampGui(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Simnandez LAMP Installer 8.5.0")
+        self.setWindowTitle("Simnandez LAMP Installer 8.5.1")
         self.setMinimumSize(720, 800)
         self.init_ui()
 
@@ -158,6 +155,8 @@ class LampGui(QMainWindow):
         for i, v in enumerate(PHP_VERSIONS):
             cb = QCheckBox(f"PHP {v}")
             self.php_checks[v] = cb
+            # --- MEJORA: Conectar señal para autoselección ---
+            cb.toggled.connect(self.update_sury_checkbox)
             if i < 6: c1.addWidget(cb)
             else: c2.addWidget(cb)
         grid.addLayout(c1); grid.addLayout(c2)
@@ -185,6 +184,13 @@ class LampGui(QMainWindow):
         self.btn.setFixedHeight(50)
         self.btn.clicked.connect(self.start_process)
         layout.addWidget(self.btn)
+
+    # --- FUNCIÓN DE LÓGICA AGREGADA ---
+    def update_sury_checkbox(self):
+        """Si hay al menos una versión de PHP marcada, marca Sury.org."""
+        any_php_selected = any(cb.isChecked() for cb in self.php_checks.values())
+        if any_php_selected:
+            self.chk_sury.setChecked(True)
 
     def log(self, text):
         self.console.append(text)
