@@ -113,7 +113,7 @@ class InstallWorker(QThread):
 class LampGui(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Simnandez LAMP Installer 8.5.1")
+        self.setWindowTitle("ArKanum LAMP Installer 8.5.1")
         self.setMinimumSize(720, 800)
         self.init_ui()
 
@@ -123,7 +123,7 @@ class LampGui(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
 
-        title = QLabel("Simnandez LAMP Stack installer")
+        title = QLabel("ArKanum LAMP Stack installer")
         title.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
