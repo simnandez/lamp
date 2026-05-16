@@ -27,8 +27,19 @@ class InstallWorker(QThread):
         super().__init__()
         self.tasks = tasks
         self.selected_php = selected_php
-        self.real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
-        self.user_home = os.path.expanduser(f"~{self.real_user}")
+        
+        # Obtener de forma segura el usuario real que ejecutó el sudo
+        self.real_user = os.environ.get('SUDO_USER')
+        if not self.real_user:
+            # Si no se usó sudo, caemos al usuario que ejecuta el proceso
+            self.real_user = pwd.getpwuid(os.getuid())[0]
+        
+        # Obtener de forma infalible su HOME real desde el sistema de archivos (/etc/passwd)
+        try:
+            self.user_home = pwd.getpwnam(self.real_user).pw_dir
+        except KeyError:
+            # En caso de error extremo, dejamos el home por defecto
+            self.user_home = os.path.expanduser(f"~{self.real_user}")
 
     def run_cmd(self, cmd, desc):
         self.log_signal.emit(f"<b>[EJECUTANDO]</b> {desc}...")
@@ -167,7 +178,7 @@ class LampGui(QMainWindow):
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox("Habilitar ModRewrite y ajustar permisos en /var/www/html")
         self.chk_tmpfs = QCheckBox("Mover logs a RAM (tmpfs) - Recomendado para SSD")
-        self.chk_autostart = QCheckBox("Añadir 'simnandez lamp tray' al Inicio Automático")
+        self.chk_autostart = QCheckBox("Añadir 'ArKanum lamp tray' al Inicio Automático")
         for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: v_ext.addWidget(c)
         g_ext.setLayout(v_ext); self.opts_layout.addWidget(g_ext)
 
