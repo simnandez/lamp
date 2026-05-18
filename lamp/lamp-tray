@@ -92,9 +92,9 @@ class LampIndicator:
         color = "#27ae60" if apache_active and db_active else "#e74c3c"
         self.tray.setIcon(self.create_custom_round_icon(color))
 
-        st_ap = "✅ ON" if apache_active else "❌ OFF"
-        st_db = "✅ ON" if db_active else "❌ OFF"
-        st_str = "⚠️ ACTIVO" if is_strict else "DESACTIVADO"
+        st_ap = "● ON" if apache_active else "○ OFF"
+        st_db = "● ON" if db_active else "○ OFF"
+        st_str = "▲ ACTIVO" if is_strict else "DESACTIVADO"
 
         titulo_bold = to_bold_unicode("ESTADO SERVICIOS LAMP")
         self.tray.setToolTip(
