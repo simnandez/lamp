@@ -124,9 +124,7 @@ fi
 # ==============================================================================
 log_section "REPOSITORIO PHP (SURY.ORG)"
 if confirmar_paso "Añadir repositorio de versiones múltiples de php"; then
-    (curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list && \
-    apt update) > /dev/null 2>&1 &
+    (apt-get install -y extrepo && extrepo enable sury && apt-get update) > /dev/null 2>&1 &
     show_progress $! "Configurando repositorio de Sury"
 fi
 
