@@ -1,0 +1,62 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "LAMP SERVICES STATUS"
+msgstr "ESTADO SERVICIOS LAMP"
+
+msgid "● ON"
+msgstr "● ON"
+
+msgid "○ OFF"
+msgstr "○ OFF"
+
+msgid "▲ ACTIVE"
+msgstr "▲ ACTIVO"
+
+msgid "DISABLED"
+msgstr "DESACTIVADO"
+
+msgid "Apache: {}"
+msgstr "Apache: {}"
+
+msgid "{}: {}"
+msgstr "{}: {}"
+
+msgid "Strict Mode: {}"
+msgstr "Strict Mode: {}"
+
+msgid "ON"
+msgstr "ENCENDIDO"
+
+msgid "OFF"
+msgstr "APAGADO"
+
+msgid "ACTIVE"
+msgstr "ACTIVO"
+
+msgid "INACTIVE"
+msgstr "INACTIVO"
+
+msgid "Start LAMP"
+msgstr "Iniciar LAMP"
+
+msgid "Restart LAMP"
+msgstr "Reiniciar LAMP"
+
+msgid "Stop LAMP"
+msgstr "Parar LAMP"
+
+msgid "Enable Strict Mode"
+msgstr "Activar Strict Mode"
+
+msgid "Disable Strict Mode"
+msgstr "Desactivar Strict Mode"
+
+msgid "PHP {} (ACTIVE)"
+msgstr "PHP {} (ACTIVA)"
+
+msgid "Exit"
+msgstr "Salir"

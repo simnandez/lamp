@@ -1,0 +1,95 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "LAMP Installer 8.5.1"
+msgstr "Instalador LAMP 8.5.1"
+
+msgid "LAMP Stack installer"
+msgstr "Instalador de Servidores LAMP"
+
+msgid "Base Installation"
+msgstr "Instalación Base"
+
+msgid "Install Apache2, MariaDB and PHP"
+msgstr "Instalar Apache2, MariaDB y PHP"
+
+msgid "Secure MariaDB and configure root"
+msgstr "Asegurar MariaDB y configurar root"
+
+msgid "Enable STRICT MODE in MariaDB"
+msgstr "Poder usar MODO ESTRICTO en MariaDB"
+
+msgid "PHP (Sury.org Repository)"
+msgstr "PHP (Repositorio Sury.org)"
+
+msgid "Add multiple PHP versions repository"
+msgstr "Añadir repositorio de múltiples versiones PHP"
+
+msgid "Apache configuration & permissions"
+msgstr "Configuración Apache y permisos"
+
+msgid "Enable ModRewrite and adjust /var/www/html permissions"
+msgstr "Habilitar ModRewrite y ajustar permisos en /var/www/html"
+
+msgid "Move logs to RAM (tmpfs) - Recommended for SSD"
+msgstr "Mover logs a RAM (tmpfs) - Recomendado para SSD"
+
+msgid "Add 'Lamp tray' to Autostart"
+msgstr "Añadir 'Lamp tray' al Inicio Automático"
+
+msgid " SYNCHRONIZE CHANGES (INSTALL / UNINSTALL)"
+msgstr " SINCRONIZAR CAMBIOS (INSTALAR / DESINSTALAR)"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "You must run this as root."
+msgstr "Debes ejecutar como root."
+
+msgid "<b>[RUNNING]</b> {}..."
+msgstr "<b>[EJECUTANDO]</b> {}..."
+
+msgid "<span style='color: #27ae60;'>✔ Autostart successfully created in '{}'s Home.</span>"
+msgstr "<span style='color: #27ae60;'>✔ Autostart creado con éxito en el Home de '{}'.</span>"
+
+msgid "<span style='color: #e74c3c;'>✘ Autostart error: {}</span>"
+msgstr "<span style='color: #e74c3c;'>✘ Error en Autostart: {}</span>"
+
+msgid "<span style='color: #27ae60;'>✔ RAM logs configured (tmpfs).</span>"
+msgstr "<span style='color: #27ae60;'>✔ Logs en RAM configurados (tmpfs).</span>"
+
+msgid "✘ tmpfs error: {}"
+msgstr "✘ Error en tmpfs: {}"
+
+msgid "Base Uninstallation (Apache & MariaDB)"
+msgstr "Desinstalación Base (Apache y MariaDB)"
+
+msgid "Securing MariaDB (full cleanup)"
+msgstr "Asegurando MariaDB (limpieza completa)"
+
+msgid "PHP Repository"
+msgstr "Repositorio PHP"
+
+msgid "Removing PHP Repository"
+msgstr "Eliminando Repositorio PHP"
+
+msgid "Installing PHP {} and extensions"
+msgstr "Instalando PHP {} y extensiones"
+
+msgid "Uninstalling PHP {}"
+msgstr "Desinstalando PHP {}"
+
+msgid "Apache & Permissions"
+msgstr "Apache y Permisos"
+
+msgid "Disabling ModRewrite"
+msgstr "Deshabilitando ModRewrite"
+
+msgid "<span style='color: #e67e22;'>✔ tmpfs configuration removed.</span>"
+msgstr "<span style='color: #e67e22;'>✔ Configuración tmpfs eliminada.</span>"
+
+msgid "<span style='color: #e67e22;'>✔ Autostart removed.</span>"
+msgstr "<span style='color: #e67e22;'>✔ Autostart eliminado.</span>"

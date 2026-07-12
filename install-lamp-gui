@@ -4,10 +4,12 @@ import sys
 import os
 import subprocess
 import pwd
+import gettext
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QCheckBox, QPushButton, QTextEdit,
-                             QLabel, QGroupBox, QScrollArea, QMessageBox, QFrame)
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+                             QLabel, QGroupBox, QScrollArea, QMessageBox, QFrame,
+                             QComboBox)
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QLocale
 from PyQt6.QtGui import QFont
 
 # --- CONFIGURACIÓN DE INSTALACIÓN ---
@@ -18,6 +20,22 @@ PHP_API = {
     "7.3": "20180731", "7.4": "20190902", "8.0": "20200930", "8.1": "20210902",
     "8.2": "20220829", "8.3": "20230831", "8.4": "20240924", "8.5": "20250925"
 }
+
+# --- CONFIGURACIÓN DE GETTEXT GLOBAL ---
+# Busca primero en la ruta global de Linux, si no existe, usa la carpeta local de desarrollo
+LOCALE_DIR = '/usr/share/locale'
+if not os.path.exists(os.path.join(LOCALE_DIR, 'es', 'LC_MESSAGES', 'lamp_installer.mo')):
+    LOCALE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locale')
+
+# Inicialización por defecto de la función global _()
+try:
+    sys_locale = QLocale.system().name().split('_')[0]
+    initial_lang = sys_locale if sys_locale in ["es", "en"] else "en"
+    _lang_obj = gettext.translation('lamp_installer', localedir=LOCALE_DIR, languages=[initial_lang], fallback=True)
+    _lang_obj.install()
+    _ = _lang_obj.gettext
+except Exception:
+    _ = gettext.gettext
 
 class InstallWorker(QThread):
     log_signal = pyqtSignal(str)
@@ -34,7 +52,6 @@ class InstallWorker(QThread):
         elif os.environ.get('PKEXEC_UID'):
             real_uid = int(os.environ.get('PKEXEC_UID'))
         else:
-            # Intenta obtener el UID original mediante el archivo de auditoría del sistema
             try:
                 with open('/proc/self/loginuid', 'r') as f:
                     luid = f.read().strip()
@@ -48,7 +65,6 @@ class InstallWorker(QThread):
         else:
             self.real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
         
-        # Extraer de forma segura rutas y credenciales del usuario objetivo
         try:
             user_info = pwd.getpwnam(self.real_user)
             self.user_home = user_info.pw_dir
@@ -60,7 +76,7 @@ class InstallWorker(QThread):
             self.user_gid = os.getgid()
 
     def run_cmd(self, cmd, desc):
-        self.log_signal.emit(f"<b>[EJECUTANDO]</b> {desc}...")
+        self.log_signal.emit(_("<b>[RUNNING]</b> {}...").format(desc))
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in process.stdout:
             self.log_signal.emit(f"<span style='color: #888;'>&nbsp;&nbsp;{line.strip()}</span>")
@@ -72,32 +88,30 @@ class InstallWorker(QThread):
         file_path = os.path.join(dir_path, "lamp-tray.desktop")
         content = "[Desktop Entry]\nExec=lamp-tray\nIcon=network-server\nName=lamp-tray\nTerminal=false\nType=Application\n"
         try:
-            # Asegurar la existencia de directorios heredando correctamente el propietario
             os.makedirs(dir_path, exist_ok=True)
-            
             with open(file_path, "w") as f: 
                 f.write(content)
             
             os.chown(file_path, self.user_uid, self.user_gid)
             os.chown(dir_path, self.user_uid, self.user_gid)
             
-            self.log_signal.emit(f"<span style='color: #27ae60;'>✔ Autostart creado con éxito en el Home de '{self.real_user}'.</span>")
+            self.log_signal.emit(_("<span style='color: #27ae60;'>✔ Autostart successfully created in '{}'s Home.</span>").format(self.real_user))
         except Exception as e:
-            self.log_signal.emit(f"<span style='color: #e74c3c;'>✘ Error en Autostart: {e}</span>")
+            self.log_signal.emit(_("<span style='color: #e74c3c;'>✘ Autostart error: {}</span>").format(e))
 
     def setup_tmpfs_logs(self):
         conf = "d /var/log/apache2 755 root adm -\nd /var/log/mysql 2755 mysql adm -\n"
         try:
             with open('/etc/tmpfiles.d/tmpfslogs.conf', 'w') as f: f.write(conf)
-            self.log_signal.emit("<span style='color: #27ae60;'>✔ Logs en RAM configurados (tmpfs).</span>")
+            self.log_signal.emit(_("<span style='color: #27ae60;'>✔ RAM logs configured (tmpfs).</span>"))
         except Exception as e:
-            self.log_signal.emit(f"✘ Error en tmpfs: {e}")
+            self.log_signal.emit(_("✘ tmpfs error: {}").format(e))
 
     def run(self):
         if self.tasks['base']:
-            self.run_cmd("apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl", "Instalación Base")
+            self.run_cmd("apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl", _("Base Installation"))
         else:
-            self.run_cmd("apt purge -y apache2 mariadb-server apache2-bin mariadb-client && apt autoremove -y", "Desinstalación Base (Apache y MariaDB)")
+            self.run_cmd("apt purge -y apache2 mariadb-server apache2-bin mariadb-client && apt autoremove -y", _("Base Uninstallation (Apache & MariaDB)"))
             
         if self.tasks['sql_sec']:
             sql_commands = [
@@ -110,7 +124,7 @@ class InstallWorker(QThread):
                 "FLUSH PRIVILEGES;"
             ]
             full_sql = " ".join(sql_commands)
-            self.run_cmd(f"mysql -u root -e \"{full_sql}\"", "Asegurando MariaDB (limpieza completa)")
+            self.run_cmd(f"mysql -u root -e \"{full_sql}\"", _("Securing MariaDB (full cleanup)"))
 
         if self.tasks['sql_mode']:
             path = '/etc/mysql/conf.d/disable_strict_mode.cnf.back'
@@ -119,10 +133,10 @@ class InstallWorker(QThread):
 
         if self.tasks['sury']:
             cmd = "apt-get install -y extrepo && extrepo enable sury && apt update"
-            self.run_cmd(cmd, "Repositorio PHP")
+            self.run_cmd(cmd, _("PHP Repository"))
         else:
             if os.path.exists("/etc/apt/sources.list.d/php.list"):
-                self.run_cmd("rm /etc/apt/sources.list.d/php.list && rm /usr/share/keyrings/deb.sury.org-php.gpg && apt update", "Eliminando Repositorio PHP")
+                self.run_cmd("rm /etc/apt/sources.list.d/php.list && rm /usr/share/keyrings/deb.sury.org-php.gpg && apt update", _("Removing PHP Repository"))
 
         for ver, install in self.php_states.items():
             if install:
@@ -130,29 +144,28 @@ class InstallWorker(QThread):
                 if ver in ["5.6", "7.0", "7.1"]:
                     libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
 
-                if self.run_cmd(f"apt install -y {libs}", f"Instalando PHP {ver} y extensiones"):
+                if self.run_cmd(f"apt install -y {libs}", _("Installing PHP {} and extensions").format(ver)):
                     ini = f"/etc/php/{ver}/mods-available/xdebug.ini"
                     if os.path.exists(os.path.dirname(ini)):
                         api = PHP_API.get(ver, "unknown")
                         with open(ini, 'w') as f:
                             f.write(f'zend_extension="/usr/lib/php/{api}/xdebug.so"\nxdebug.mode=debug\nxdebug.remote_port=9003\nxdebug.remote_enable=1\n')
             else:
-                # Solo desinstalar si el paquete principal existe
                 if os.path.exists(f"/etc/php/{ver}"):
-                    self.run_cmd(f"apt purge -y php{ver}* && apt autoremove -y", f"Desinstalando PHP {ver}")
+                    self.run_cmd(f"apt purge -y php{ver}* && apt autoremove -y", _("Uninstalling PHP {}").format(ver))
 
         if self.tasks['apache']:
             cmds = f"a2enmod rewrite && chown -R www-data:www-data /var/www/html && usermod -aG www-data {self.real_user} && systemctl restart apache2"
-            self.run_cmd(cmds, "Apache y Permisos")
+            self.run_cmd(cmds, _("Apache & Permissions"))
         else:
-            self.run_cmd("a2dismod rewrite && systemctl restart apache2", "Deshabilitando ModRewrite")
+            self.run_cmd("a2dismod rewrite && systemctl restart apache2", _("Disabling ModRewrite"))
 
         if self.tasks['tmpfs']:
             self.setup_tmpfs_logs()
         else:
             if os.path.exists('/etc/tmpfiles.d/tmpfslogs.conf'):
                 os.remove('/etc/tmpfiles.d/tmpfslogs.conf')
-                self.log_signal.emit("<span style='color: #e67e22;'>✔ Configuración tmpfs eliminada.</span>")
+                self.log_signal.emit(_("<span style='color: #e67e22;'>✔ tmpfs configuration removed.</span>"))
 
         if self.tasks['autostart']:
             self.create_autostart()
@@ -160,16 +173,21 @@ class InstallWorker(QThread):
             path = os.path.join(self.user_home, ".config", "autostart", "lamp-tray.desktop")
             if os.path.exists(path):
                 os.remove(path)
-                self.log_signal.emit("<span style='color: #e67e22;'>✔ Autostart eliminado.</span>")
+                self.log_signal.emit(_("<span style='color: #e67e22;'>✔ Autostart removed.</span>"))
 
         self.finished_signal.emit(True)
 
 class LampGui(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ArKanum LAMP Installer 8.5.1")
         self.setMinimumSize(720, 800)
+        
+        # Detección inicial del idioma del sistema
+        sys_locale = QLocale.system().name().split('_')[0]
+        self.current_lang = sys_locale if sys_locale in ["en", "es"] else "en"
+            
         self.init_ui()
+        self.update_language(self.current_lang)
 
     def init_ui(self):
         central = QWidget()
@@ -177,11 +195,22 @@ class LampGui(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
+        
+        # BARRA SUPERIOR (Selector de Idioma)
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+        self.combo_lang = QComboBox()
+        self.combo_lang.addItems(["en", "es"])  # Idiomas explícitamente soportados por los archivos .po
+        self.combo_lang.setCurrentText(self.current_lang)
+        self.combo_lang.currentTextChanged.connect(self.update_language)
+        top_bar.addWidget(self.combo_lang)
+        layout.addLayout(top_bar)
 
-        title = QLabel("ArKanum LAMP Stack installer")
-        title.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        # TÍTULO ANCORADO
+        self.title_label = QLabel()
+        self.title_label.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.title_label)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -189,19 +218,19 @@ class LampGui(QMainWindow):
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
 
-        # SERVIDORES
-        g_base = QGroupBox("Instalación Base")
+        # SECCIÓN SERVIDORES
+        self.g_base = QGroupBox()
         v_base = QVBoxLayout()
-        self.chk_base = QCheckBox("Instalar Apache2, MariaDB y PHP")
-        self.chk_sql_sec = QCheckBox("Asegurar MariaDB y configurar root")
-        self.chk_sql_mode = QCheckBox("Poder usar MODO ESTRICTO en MariaDB")
+        self.chk_base = QCheckBox()
+        self.chk_sql_sec = QCheckBox()
+        self.chk_sql_mode = QCheckBox()
         for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
-        g_base.setLayout(v_base); self.opts_layout.addWidget(g_base)
+        self.g_base.setLayout(v_base); self.opts_layout.addWidget(self.g_base)
 
-        # PHP
-        g_php = QGroupBox("PHP (Repositorio Sury.org)")
+        # SECCIÓN PHP
+        self.g_php = QGroupBox()
         v_php = QVBoxLayout()
-        self.chk_sury = QCheckBox("Añadir repositorio de múltiples versiones PHP")
+        self.chk_sury = QCheckBox()
         v_php.addWidget(self.chk_sury)
         php_grid = QWidget()
         grid = QHBoxLayout(php_grid); grid.setContentsMargins(10,0,0,0)
@@ -214,21 +243,20 @@ class LampGui(QMainWindow):
             if i < 6: c1.addWidget(cb)
             else: c2.addWidget(cb)
         grid.addLayout(c1); grid.addLayout(c2)
-        v_php.addWidget(php_grid); g_php.setLayout(v_php); self.opts_layout.addWidget(g_php)
+        v_php.addWidget(php_grid); self.g_php.setLayout(v_php); self.opts_layout.addWidget(self.g_php)
 
         # OPTIMIZACIÓN Y ESCRITORIO
-        g_ext = QGroupBox("Configuración Apache y permisos")
+        self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
-        self.chk_apache = QCheckBox("Habilitar ModRewrite y ajustar permisos en /var/www/html")
-        self.chk_tmpfs = QCheckBox("Mover logs a RAM (tmpfs) - Recomendado para SSD")
-        self.chk_autostart = QCheckBox("Añadir 'ArKanum lamp tray' al Inicio Automático")
+        self.chk_apache = QCheckBox()
+        self.chk_tmpfs = QCheckBox()
+        self.chk_autostart = QCheckBox()
         for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: v_ext.addWidget(c)
-        g_ext.setLayout(v_ext); self.opts_layout.addWidget(g_ext)
+        self.g_ext.setLayout(v_ext); self.opts_layout.addWidget(self.g_ext)
 
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll, stretch=1)
 
-        # Detección inicial
         self.detect_installed_components()
 
         self.console = QTextEdit()
@@ -237,33 +265,58 @@ class LampGui(QMainWindow):
         self.console.setStyleSheet("""QTextEdit {background-color: #000000;color: #FFFFFF;font-family: 'Monospace';font-size: 10pt;border: 1px solid #444444;}""")
         layout.addWidget(self.console)
 
-        self.btn = QPushButton(" SINCRONIZAR CAMBIOS (INSTALAR / DESINSTALAR)")
+        self.btn = QPushButton()
         self.btn.setFixedHeight(50)
         self.btn.clicked.connect(self.start_process)
         layout.addWidget(self.btn)
+
+    def update_language(self, lang_code):
+        """Re-vincula dinámicamente el diccionario global de gettext y actualiza los elementos gráficos."""
+        global _
+        self.current_lang = lang_code
+        try:
+            lang_obj = gettext.translation('lamp_installer', localedir=LOCALE_DIR, languages=[lang_code])
+            lang_obj.install()
+            _ = lang_obj.gettext
+        except Exception:
+            _ = gettext.gettext  # Fallback a cadenas nativas en inglés si hay fallas
+        
+        # Actualización de UI usando las traducciones de gettext
+        self.setWindowTitle(_("LAMP Installer 8.5.1"))
+        self.title_label.setText(_("LAMP Stack installer"))
+        
+        self.g_base.setTitle(_("Base Installation"))
+        self.chk_base.setText(_("Install Apache2, MariaDB and PHP"))
+        self.chk_sql_sec.setText(_("Secure MariaDB and configure root"))
+        self.chk_sql_mode.setText(_("Enable STRICT MODE in MariaDB"))
+        
+        self.g_php.setTitle(_("PHP (Sury.org Repository)"))
+        self.chk_sury.setText(_("Add multiple PHP versions repository"))
+        
+        self.g_ext.setTitle(_("Apache configuration & permissions"))
+        self.chk_apache.setText(_("Enable ModRewrite and adjust /var/www/html permissions"))
+        self.chk_tmpfs.setText(_("Move logs to RAM (tmpfs) - Recommended for SSD"))
+        self.chk_autostart.setText(_("Add 'Lamp tray' to Autostart"))
+        
+        self.btn.setText(_(" SYNCHRONIZE CHANGES (INSTALL / UNINSTALL)"))
 
     def detect_installed_components(self):
         def is_installed(pkg):
             return subprocess.call(["dpkg", "-s", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT) == 0
 
-        # Base
         if is_installed("apache2") or is_installed("mariadb-server"):
             self.chk_base.setChecked(True)
 
-        # PHP Repo
         if os.path.exists("/etc/apt/sources.list.d/php.list"):
             self.chk_sury.setChecked(True)
 
-        # PHP Versions
         for ver, cb in self.php_checks.items():
             if is_installed(f"php{ver}"):
                 cb.setChecked(True)
 
-        # Tmpfs
         if os.path.exists('/etc/tmpfiles.d/tmpfslogs.conf'):
             self.chk_tmpfs.setChecked(True)
 
-        # Autostart
         user_home = pwd.getpwnam(self.real_user).pw_dir
         if os.path.exists(os.path.join(user_home, ".config", "autostart", "lamp-tray.desktop")):
             self.chk_autostart.setChecked(True)
@@ -279,8 +332,9 @@ class LampGui(QMainWindow):
 
     def start_process(self):
         if os.geteuid() != 0:
-            QMessageBox.critical(self, "Error", "Debes ejecutar como root.")
+            QMessageBox.critical(self, _("Error"), _("You must run this as root."))
             return
+            
         tasks = {
             'base': self.chk_base.isChecked(), 'sql_sec': self.chk_sql_sec.isChecked(),
             'sql_mode': self.chk_sql_mode.isChecked(), 'sury': self.chk_sury.isChecked(),
@@ -288,8 +342,11 @@ class LampGui(QMainWindow):
             'autostart': self.chk_autostart.isChecked()
         }
         php_states = {v: cb.isChecked() for v, cb in self.php_checks.items()}
+        
         self.btn.setEnabled(False)
         self.console.clear()
+        
+        # El hilo hereda automáticamente el puntero de la función global `_` modificada
         self.worker = InstallWorker(tasks, php_states)
         self.worker.log_signal.connect(self.log)
         self.worker.finished_signal.connect(lambda: self.btn.setEnabled(True))

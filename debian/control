@@ -1,0 +1,9 @@
+Package: lamp-development-tools
+Version: 1.0.0
+Architecture: all
+Maintainer: Tu Nombre <jmenent@simnandez.es>
+Depends: python3, python3-pyqt6, extrepo
+Section: utils
+Priority: optional
+Description: Herramientas gráficas para gestionar e instalar el entorno LAMP.
+ Incluye el instalador multi-versión de PHP y el indicador de la barra de tareas.

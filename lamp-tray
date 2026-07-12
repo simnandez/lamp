@@ -4,17 +4,30 @@ import sys
 import os
 import subprocess
 import glob
+import gettext
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QPen, QBrush
 from PyQt6.QtCore import QTimer, Qt
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE GETTEXT (LOCALIZACIÓN) ---
+LOCALE_DIR = '/usr/share/locale'
+if not os.path.exists(os.path.join(LOCALE_DIR, 'es', 'LC_MESSAGES', 'lamp_tray.mo')):
+    LOCALE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locale')
+
+# Inicializa gettext buscando el dominio 'lamp_indicator'
+# fallback=True asegura que si no encuentra el idioma del sistema, use los strings originales en inglés del código.
+lang = gettext.translation('lamp_tray', localedir=LOCALE_DIR, fallback=True)
+lang.install()
+# Esto inyecta la función _() de forma global en el script.
+_ = lang.gettext
+
+# --- CONFIGURACIÓN DEL SCRIPT ---
 STRICT_MODE_FILE = "/etc/mysql/conf.d/enable_strict_mode.cnf"
 STRICT_MODE_BACKUP = "/etc/mysql/conf.d/enable_strict_mode.cnf.back"
 
 def to_bold_unicode(text):
     normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    bold = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝗫𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    bold = "𝗔𝗕𝗖𝗗Ｅ𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢Ｐ𝗤𝗥𝗦𝗧𝗨𝑽𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝒗𝘄𝗫𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
     table = str.maketrans(normal, bold)
     return text.translate(table)
 
@@ -92,11 +105,12 @@ class LampIndicator:
         color = "#27ae60" if apache_active and db_active else "#e74c3c"
         self.tray.setIcon(self.create_custom_round_icon(color))
 
-        st_ap = "● ON" if apache_active else "○ OFF"
-        st_db = "● ON" if db_active else "○ OFF"
-        st_str = "▲ ACTIVO" if is_strict else "DESACTIVADO"
+        # Uso de traducciones de gettext mediante _()
+        st_ap = _("● ON") if apache_active else _("○ OFF")
+        st_db = _("● ON") if db_active else _("○ OFF")
+        st_str = _("▲ ACTIVE") if is_strict else _("DISABLED")
 
-        titulo_bold = to_bold_unicode("ESTADO SERVICIOS LAMP")
+        titulo_bold = to_bold_unicode(_("LAMP SERVICES STATUS"))
         self.tray.setToolTip(
             f"{titulo_bold}\n\n"
             f"Apache: {st_ap}\n"
@@ -112,23 +126,28 @@ class LampIndicator:
         self.menu.clear()
         VERDE, ROJO = "#27ae60", "#e74c3c"
 
-        # Estados
-        self.menu.addAction(self.create_dot_icon(VERDE if apache_on else ROJO), f"Apache: {'ENCENDIDO' if apache_on else 'APAGADO'}")
-        self.menu.addAction(self.create_dot_icon(VERDE if db_on else ROJO), f"{self.db_service.upper()}: {'ENCENDIDO' if db_on else 'APAGADO'}")
-        self.menu.addAction(self.create_dot_icon(ROJO if is_strict else VERDE), f"Strict Mode: {'ACTIVO' if is_strict else 'INACTIVO'}")
+        # Formateo dinámico con cadenas traducidas
+        apache_status = _("ON") if apache_on else _("OFF")
+        self.menu.addAction(self.create_dot_icon(VERDE if apache_on else ROJO), _("Apache: {}").format(apache_status))
+        
+        db_status = _("ON") if db_on else _("OFF")
+        self.menu.addAction(self.create_dot_icon(VERDE if db_on else ROJO), _("{}: {}").format(self.db_service.upper(), db_status))
+        
+        strict_status = _("ACTIVE") if is_strict else _("INACTIVE")
+        self.menu.addAction(self.create_dot_icon(ROJO if is_strict else VERDE), _("Strict Mode: {}").format(strict_status))
         self.menu.addSeparator()
 
-        # Controles principales
-        self.menu.addAction(QIcon.fromTheme("media-playback-start"), "Iniciar LAMP",
+        # Botones de Control
+        self.menu.addAction(QIcon.fromTheme("media-playback-start"), _("Start LAMP"),
                            lambda: self.run_gui_sudo(f"systemctl start apache2 {self.db_service}"))
-        self.menu.addAction(QIcon.fromTheme("view-refresh"), "Reiniciar LAMP",
+        self.menu.addAction(QIcon.fromTheme("view-refresh"), _("Restart LAMP"),
                            lambda: self.run_gui_sudo(f"systemctl restart apache2 {self.db_service}"))
-        self.menu.addAction(QIcon.fromTheme("media-playback-stop"), "Parar LAMP",
+        self.menu.addAction(QIcon.fromTheme("media-playback-stop"), _("Stop LAMP"),
                            lambda: self.run_gui_sudo(f"systemctl stop apache2 {self.db_service}"))
         self.menu.addSeparator()
 
         # Toggle Strict Mode
-        label_st = "Desactivar Strict Mode" if is_strict else "Activar Strict Mode"
+        label_st = _("Disable Strict Mode") if is_strict else _("Enable Strict Mode")
         self.menu.addAction(QIcon.fromTheme("security-high"), label_st, lambda: self.toggle_strict(not is_strict))
         self.menu.addSeparator()
 
@@ -138,13 +157,15 @@ class LampIndicator:
             ver = os.path.basename(path).replace("php", "")
             is_act = (ver == active_php)
             icon = QIcon.fromTheme("emblem-success-symbolic") if is_act else QIcon()
-            label = to_bold_unicode(f"PHP {ver} (ACTIVA)") if is_act else f"PHP {ver}"
+            
+            # gettext traduce la plantilla base, y luego inyectamos la versión y aplicamos negrita si corresponde
+            label = to_bold_unicode(_("PHP {} (ACTIVE)").format(ver)) if is_act else f"PHP {ver}"
             action = QAction(icon, label, self.menu)
             action.triggered.connect(lambda checked, v=ver: self.change_php(v))
             self.menu.addAction(action)
 
         self.menu.addSeparator()
-        self.menu.addAction(QIcon.fromTheme("application-exit"), "Salir", self.app.quit)
+        self.menu.addAction(QIcon.fromTheme("application-exit"), _("Exit"), self.app.quit)
 
     def toggle_strict(self, activate):
         if activate:
