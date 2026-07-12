@@ -1,7 +1,7 @@
 Package: lamp-development-tools
 Version: 1.0.0
 Architecture: all
-Maintainer: Tu Nombre <jmenent@simnandez.es>
+Maintainer: Juanjo Menent <jmenent@simnandez.es>
 Depends: python3, python3-pyqt6, extrepo
 Section: utils
 Priority: optional

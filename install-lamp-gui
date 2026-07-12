@@ -8,12 +8,11 @@ import gettext
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QCheckBox, QPushButton, QTextEdit,
                              QLabel, QGroupBox, QScrollArea, QMessageBox, QFrame,
-                             QComboBox)
+                             QComboBox, QInputDialog, QLineEdit)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QLocale
 from PyQt6.QtGui import QFont
 
 # --- CONFIGURACIÓN DE INSTALACIÓN ---
-DB_ROOT_PASS = "123456"
 PHP_VERSIONS = ["5.6", "7.0", "7.1", "7.2", "7.3", "7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]
 PHP_API = {
     "5.6": "20131226", "7.0": "20151012", "7.1": "20160303", "7.2": "20170718",
@@ -22,12 +21,10 @@ PHP_API = {
 }
 
 # --- CONFIGURACIÓN DE GETTEXT GLOBAL ---
-# Busca primero en la ruta global de Linux, si no existe, usa la carpeta local de desarrollo
 LOCALE_DIR = '/usr/share/locale'
 if not os.path.exists(os.path.join(LOCALE_DIR, 'es', 'LC_MESSAGES', 'lamp_installer.mo')):
     LOCALE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locale')
 
-# Inicialización por defecto de la función global _()
 try:
     sys_locale = QLocale.system().name().split('_')[0]
     initial_lang = sys_locale if sys_locale in ["es", "en"] else "en"
@@ -41,10 +38,11 @@ class InstallWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
 
-    def __init__(self, tasks, php_states):
+    def __init__(self, tasks, php_states, db_pass=""):
         super().__init__()
         self.tasks = tasks
         self.php_states = php_states
+        self.db_pass = db_pass
         
         real_uid = None
         if os.environ.get('SUDO_UID'):
@@ -114,8 +112,9 @@ class InstallWorker(QThread):
             self.run_cmd("apt purge -y apache2 mariadb-server apache2-bin mariadb-client && apt autoremove -y", _("Base Uninstallation (Apache & MariaDB)"))
             
         if self.tasks['sql_sec']:
+            safe_pass = self.db_pass.replace("'", "'\\''")
             sql_commands = [
-                f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{DB_ROOT_PASS}';",
+                f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{safe_pass}';",
                 "DELETE FROM mysql.user WHERE User='';",
                 "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');",
                 "DROP DATABASE IF EXISTS test;",
@@ -182,7 +181,6 @@ class LampGui(QMainWindow):
         super().__init__()
         self.setMinimumSize(720, 800)
         
-        # Detección inicial del idioma del sistema
         sys_locale = QLocale.system().name().split('_')[0]
         self.current_lang = sys_locale if sys_locale in ["en", "es"] else "en"
             
@@ -196,17 +194,15 @@ class LampGui(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
         
-        # BARRA SUPERIOR (Selector de Idioma)
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.combo_lang = QComboBox()
-        self.combo_lang.addItems(["en", "es"])  # Idiomas explícitamente soportados por los archivos .po
+        self.combo_lang.addItems(["en", "es"])
         self.combo_lang.setCurrentText(self.current_lang)
         self.combo_lang.currentTextChanged.connect(self.update_language)
         top_bar.addWidget(self.combo_lang)
         layout.addLayout(top_bar)
 
-        # TÍTULO ANCORADO
         self.title_label = QLabel()
         self.title_label.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -218,7 +214,6 @@ class LampGui(QMainWindow):
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
 
-        # SECCIÓN SERVIDORES
         self.g_base = QGroupBox()
         v_base = QVBoxLayout()
         self.chk_base = QCheckBox()
@@ -227,7 +222,6 @@ class LampGui(QMainWindow):
         for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
         self.g_base.setLayout(v_base); self.opts_layout.addWidget(self.g_base)
 
-        # SECCIÓN PHP
         self.g_php = QGroupBox()
         v_php = QVBoxLayout()
         self.chk_sury = QCheckBox()
@@ -245,7 +239,6 @@ class LampGui(QMainWindow):
         grid.addLayout(c1); grid.addLayout(c2)
         v_php.addWidget(php_grid); self.g_php.setLayout(v_php); self.opts_layout.addWidget(self.g_php)
 
-        # OPTIMIZACIÓN Y ESCRITORIO
         self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox()
@@ -271,7 +264,6 @@ class LampGui(QMainWindow):
         layout.addWidget(self.btn)
 
     def update_language(self, lang_code):
-        """Re-vincula dinámicamente el diccionario global de gettext y actualiza los elementos gráficos."""
         global _
         self.current_lang = lang_code
         try:
@@ -279,9 +271,8 @@ class LampGui(QMainWindow):
             lang_obj.install()
             _ = lang_obj.gettext
         except Exception:
-            _ = gettext.gettext  # Fallback a cadenas nativas en inglés si hay fallas
+            _ = gettext.gettext
         
-        # Actualización de UI usando las traducciones de gettext
         self.setWindowTitle(_("LAMP Installer 8.5.1"))
         self.title_label.setText(_("LAMP Stack installer"))
         
@@ -341,13 +332,26 @@ class LampGui(QMainWindow):
             'apache': self.chk_apache.isChecked(), 'tmpfs': self.chk_tmpfs.isChecked(),
             'autostart': self.chk_autostart.isChecked()
         }
+        
+        # --- SOLICITUD SEGURA DE CONTRASEÑA ---
+        db_password = ""
+        if tasks['sql_sec']:
+            password, ok = QInputDialog.getText(
+                self, 
+                _("Database Password"), 
+                _("Enter new password for MariaDB root user:"), 
+                QLineEdit.EchoMode.Password
+            )
+            if not ok:
+                return 
+            db_password = password
+            
         php_states = {v: cb.isChecked() for v, cb in self.php_checks.items()}
         
         self.btn.setEnabled(False)
         self.console.clear()
         
-        # El hilo hereda automáticamente el puntero de la función global `_` modificada
-        self.worker = InstallWorker(tasks, php_states)
+        self.worker = InstallWorker(tasks, php_states, db_password)
         self.worker.log_signal.connect(self.log)
         self.worker.finished_signal.connect(lambda: self.btn.setEnabled(True))
         self.worker.start()

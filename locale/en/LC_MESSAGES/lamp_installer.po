@@ -93,3 +93,9 @@ msgstr "<span style='color: #e67e22;'>✔ tmpfs configuration removed.</span>"
 
 msgid "<span style='color: #e67e22;'>✔ Autostart removed.</span>"
 msgstr "<span style='color: #e67e22;'>✔ Autostart removed.</span>"
+
+msgid "Database Password"
+msgstr "Database Password"
+
+msgid "Enter new password for MariaDB root user:"
+msgstr "Enter new password for MariaDB root user:"

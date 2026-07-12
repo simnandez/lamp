@@ -9,16 +9,15 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QPen, QBrush
 from PyQt6.QtCore import QTimer, Qt
 
-# --- CONFIGURACIÓN DE GETTEXT (LOCALIZACIÓN) ---
+# --- CONFIGURACIÓN DE GETTEXT GLOBAL ---
+# Buscar primero en la ruta global de Linux, si no existe, usar la carpeta local de desarrollo
 LOCALE_DIR = '/usr/share/locale'
 if not os.path.exists(os.path.join(LOCALE_DIR, 'es', 'LC_MESSAGES', 'lamp_tray.mo')):
     LOCALE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locale')
 
-# Inicializa gettext buscando el dominio 'lamp_indicator'
-# fallback=True asegura que si no encuentra el idioma del sistema, use los strings originales en inglés del código.
+# Inicialización por defecto de la función global _()
 lang = gettext.translation('lamp_tray', localedir=LOCALE_DIR, fallback=True)
 lang.install()
-# Esto inyecta la función _() de forma global en el script.
 _ = lang.gettext
 
 # --- CONFIGURACIÓN DEL SCRIPT ---
