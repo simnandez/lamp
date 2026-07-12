@@ -194,6 +194,7 @@ class LampGui(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
         
+        # BARRA SUPERIOR (Selector de Idioma)
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.combo_lang = QComboBox()
@@ -203,6 +204,7 @@ class LampGui(QMainWindow):
         top_bar.addWidget(self.combo_lang)
         layout.addLayout(top_bar)
 
+        # TÍTULO
         self.title_label = QLabel()
         self.title_label.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -214,6 +216,7 @@ class LampGui(QMainWindow):
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
 
+        # SERVIDORES
         self.g_base = QGroupBox()
         v_base = QVBoxLayout()
         self.chk_base = QCheckBox()
@@ -222,6 +225,7 @@ class LampGui(QMainWindow):
         for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
         self.g_base.setLayout(v_base); self.opts_layout.addWidget(self.g_base)
 
+        # PHP
         self.g_php = QGroupBox()
         v_php = QVBoxLayout()
         self.chk_sury = QCheckBox()
@@ -239,6 +243,7 @@ class LampGui(QMainWindow):
         grid.addLayout(c1); grid.addLayout(c2)
         v_php.addWidget(php_grid); self.g_php.setLayout(v_php); self.opts_layout.addWidget(self.g_php)
 
+        # OPTIMIZACIÓN Y ESCRITORIO
         self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox()
