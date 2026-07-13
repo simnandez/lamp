@@ -34,6 +34,35 @@ try:
 except Exception:
     _ = gettext.gettext
 
+
+# --- DETECCIÓN ROBUSTA DEL USUARIO REAL (SUDO / PKEXEC / LOGINUID) ---
+def get_real_user_info():
+    real_uid = None
+    if os.environ.get('SUDO_UID'):
+        real_uid = int(os.environ.get('SUDO_UID'))
+    elif os.environ.get('PKEXEC_UID'):
+        real_uid = int(os.environ.get('PKEXEC_UID'))
+    else:
+        try:
+            with open('/proc/self/loginuid', 'r') as f:
+                luid = f.read().strip()
+                if luid and luid != '4294967295':
+                    real_uid = int(luid)
+        except Exception:
+            pass
+
+    if real_uid is not None and real_uid != 0:
+        real_user = pwd.getpwuid(real_uid)[0]
+    else:
+        real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
+    
+    try:
+        user_info = pwd.getpwnam(real_user)
+        return real_user, user_info.pw_dir, user_info.pw_uid, user_info.pw_gid
+    except KeyError:
+        return real_user, os.path.expanduser(f"~{real_user}"), os.getuid(), os.getgid()
+
+
 class InstallWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
@@ -43,35 +72,8 @@ class InstallWorker(QThread):
         self.tasks = tasks
         self.php_states = php_states
         self.db_pass = db_pass
-        
-        real_uid = None
-        if os.environ.get('SUDO_UID'):
-            real_uid = int(os.environ.get('SUDO_UID'))
-        elif os.environ.get('PKEXEC_UID'):
-            real_uid = int(os.environ.get('PKEXEC_UID'))
-        else:
-            try:
-                with open('/proc/self/loginuid', 'r') as f:
-                    luid = f.read().strip()
-                    if luid and luid != '4294967295':
-                        real_uid = int(luid)
-            except Exception:
-                pass
-
-        if real_uid is not None and real_uid != 0:
-            self.real_user = pwd.getpwuid(real_uid)[0]
-        else:
-            self.real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
-        
-        try:
-            user_info = pwd.getpwnam(self.real_user)
-            self.user_home = user_info.pw_dir
-            self.user_uid = user_info.pw_uid
-            self.user_gid = user_info.pw_gid
-        except KeyError:
-            self.user_home = os.path.expanduser(f"~{self.real_user}")
-            self.user_uid = os.getuid()
-            self.user_gid = os.getgid()
+        # Usamos la detección unificada
+        self.real_user, self.user_home, self.user_uid, self.user_gid = get_real_user_info()
 
     def run_cmd(self, cmd, desc):
         self.log_signal.emit(_("<b>[RUNNING]</b> {}...").format(desc))
@@ -142,7 +144,7 @@ class InstallWorker(QThread):
             if os.path.exists("/etc/apt/sources.list.d/php.list"):
                 self.run_cmd("rm /etc/apt/sources.list.d/php.list && rm /usr/share/keyrings/deb.sury.org-php.gpg && apt update", _("Removing PHP Repository"))
 
-        # 5. INSTALACIÓN DE VERSIONES DE PHP Y GENERACIÓN COMPLETA DE XDEBUG.INI
+        # 5. INSTALACIÓN DE VERSIONES DE PHP Y XDEBUG
         for ver, install in self.php_states.items():
             if install:
                 libs = f"php{ver} libapache2-mod-php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
@@ -153,8 +155,6 @@ class InstallWorker(QThread):
                     ini = f"/etc/php/{ver}/mods-available/xdebug.ini"
                     if os.path.exists(os.path.dirname(ini)):
                         api = PHP_API.get(ver, "unknown")
-                        
-                        # Lista nativa limpia para evitar alertas de escape y volcar toda la config
                         config_lines = [
                             f'zend_extension="/usr/lib/php/{api}/xdebug.so"',
                             'xdebug.remote_enable=1',
@@ -214,8 +214,8 @@ class InstallWorker(QThread):
 
         # REINICIO FINAL DE SERVICIOS
         self.run_cmd("systemctl restart apache2 mariadb", _("Restarting System Services"))
-        
         self.finished_signal.emit(True)
+
 
 class LampGui(QMainWindow):
     def __init__(self):
@@ -230,7 +230,8 @@ class LampGui(QMainWindow):
 
     def init_ui(self):
         central = QWidget()
-        self.real_user = os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid())[0]
+        # Usamos la detección unificada también aquí
+        self.real_user, self.user_home, self.user_uid, self.user_gid = get_real_user_info()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
@@ -352,11 +353,22 @@ class LampGui(QMainWindow):
             if is_installed(f"php{ver}"):
                 cb.setChecked(True)
 
+        # Comprobar el estado real de AllowOverride en Apache
+        conf_file = "/etc/apache2/sites-available/000-default.conf"
+        if os.path.exists(conf_file):
+            try:
+                with open(conf_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if "<Directory /var/www/html>" in content and "AllowOverride All" in content:
+                        self.chk_apache.setChecked(True)
+            except Exception:
+                pass
+
         if os.path.exists('/etc/tmpfiles.d/tmpfslogs.conf'):
             self.chk_tmpfs.setChecked(True)
 
-        user_home = pwd.getpwnam(self.real_user).pw_dir
-        if os.path.exists(os.path.join(user_home, ".config", "autostart", "lamp-tray.desktop")):
+        # Apunta al home del usuario (.config/autostart/)
+        if os.path.exists(os.path.join(self.user_home, ".config", "autostart", "lamp-tray.desktop")):
             self.chk_autostart.setChecked(True)
 
     def update_sury_checkbox(self):
