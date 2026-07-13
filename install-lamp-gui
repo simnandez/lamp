@@ -106,30 +106,35 @@ class InstallWorker(QThread):
             self.log_signal.emit(_("✘ tmpfs error: {}").format(e))
 
     def run(self):
+        # 1. ACTUALIZACIÓN E INSTALACIÓN BASE
         if self.tasks['base']:
             self.run_cmd("apt update && apt install -y apache2 mariadb-server php php-mysql wget lsb-release ca-certificates apt-transport-https gnupg2 curl", _("Base Installation"))
         else:
             self.run_cmd("apt purge -y apache2 mariadb-server apache2-bin mariadb-client && apt autoremove -y", _("Base Uninstallation (Apache & MariaDB)"))
             
+        # 2. CONFIGURACIÓN DE SEGURIDAD MARIADB
         if self.tasks['sql_sec']:
             safe_pass = self.db_pass.replace("'", "'\\''")
-            sql_commands = [
-                f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{safe_pass}';",
-                "DELETE FROM mysql.user WHERE User='';",
-                "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');",
-                "DROP DATABASE IF EXISTS test;",
-                "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';",
-                "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;",
-                "FLUSH PRIVILEGES;"
-            ]
-            full_sql = " ".join(sql_commands)
-            self.run_cmd(f"mysql -u root -e \"{full_sql}\"", _("Securing MariaDB (full cleanup)"))
+            sql_script = f"""
+            mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{safe_pass}';"
+            export MYSQL_PWD="{safe_pass}"
+            mysql -u root -e "DELETE FROM mysql.user WHERE User='';"
+            mysql -u root -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
+            mysql -u root -e "DROP DATABASE IF EXISTS test;"
+            mysql -u root -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+            mysql -u root -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' IDENTIFIED BY '{safe_pass}' WITH GRANT OPTION;"
+            mysql -u root -e "FLUSH PRIVILEGES;"
+            unset MYSQL_PWD
+            """
+            self.run_cmd(sql_script, _("Securing MariaDB (full cleanup)"))
 
+        # 3. MODO NO ESTRICTO MARIADB
         if self.tasks['sql_mode']:
             path = '/etc/mysql/conf.d/disable_strict_mode.cnf.back'
-            conf = "[mysqld]\nsql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+            conf = "[mysqld]\nsql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION\n"
             with open(path, 'w') as f: f.write(conf)
 
+        # 4. REPOSITORIO SURY
         if self.tasks['sury']:
             cmd = "apt-get install -y extrepo && extrepo enable sury && apt update"
             self.run_cmd(cmd, _("PHP Repository"))
@@ -137,9 +142,10 @@ class InstallWorker(QThread):
             if os.path.exists("/etc/apt/sources.list.d/php.list"):
                 self.run_cmd("rm /etc/apt/sources.list.d/php.list && rm /usr/share/keyrings/deb.sury.org-php.gpg && apt update", _("Removing PHP Repository"))
 
+        # 5. INSTALACIÓN DE VERSIONES DE PHP Y GENERACIÓN COMPLETA DE XDEBUG.INI
         for ver, install in self.php_states.items():
             if install:
-                libs = f"php{ver} libapache2-mod-php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
+                libs = f"php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
                 if ver in ["5.6", "7.0", "7.1"]:
                     libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
 
@@ -147,18 +153,49 @@ class InstallWorker(QThread):
                     ini = f"/etc/php/{ver}/mods-available/xdebug.ini"
                     if os.path.exists(os.path.dirname(ini)):
                         api = PHP_API.get(ver, "unknown")
+                        
+                        # Lista nativa limpia para evitar alertas de escape y volcar toda la config
+                        config_lines = [
+                            f'zend_extension="/usr/lib/php/{api}/xdebug.so"',
+                            'xdebug.remote_enable=1',
+                            'xdebug.remote_handler=dbgp',
+                            'xdebug.remote_mode=req',
+                            'xdebug.remote_host=127.0.0.1',
+                            'xdebug.remote_port=9003',
+                            'xdebug.max_nesting_level=300',
+                            'xdebug.mode=debug'
+                        ]
                         with open(ini, 'w') as f:
-                            f.write(f'zend_extension="/usr/lib/php/{api}/xdebug.so"\nxdebug.mode=debug\nxdebug.remote_port=9003\nxdebug.remote_enable=1\n')
+                            f.write('\n'.join(config_lines) + '\n')
             else:
                 if os.path.exists(f"/etc/php/{ver}"):
                     self.run_cmd(f"apt purge -y php{ver}* && apt autoremove -y", _("Uninstalling PHP {}").format(ver))
 
+        # 6. APACHE Y PERMISOS
         if self.tasks['apache']:
-            cmds = f"a2enmod rewrite && chown -R www-data:www-data /var/www/html && usermod -aG www-data {self.real_user} && systemctl restart apache2"
+            cmds = fr"""
+            a2enmod rewrite > /dev/null 2>&1
+            CONF_FILE="/etc/apache2/sites-available/000-default.conf"
+
+            if ! grep -q "<Directory /var/www/html>" "$CONF_FILE"; then
+                sed -i '/DocumentRoot \/var\/www\/html/a \
+                <Directory /var/www/html>\
+                    Options Indexes FollowSymLinks\
+                    AllowOverride All\
+                    Require all granted\
+                </Directory>' "$CONF_FILE"
+            fi
+
+            chown -R www-data:www-data /var/www/html
+            find /var/www/html -type d -exec chmod 2775 {{}} \;
+            find /var/www/html -type f -exec chmod 0664 {{}} \;
+            usermod -aG www-data {self.real_user}
+            """
             self.run_cmd(cmds, _("Apache & Permissions"))
         else:
-            self.run_cmd("a2dismod rewrite && systemctl restart apache2", _("Disabling ModRewrite"))
+            self.run_cmd("a2dismod rewrite", _("Disabling ModRewrite"))
 
+        # 7. LOGS EN RAM (TMPFS)
         if self.tasks['tmpfs']:
             self.setup_tmpfs_logs()
         else:
@@ -166,6 +203,7 @@ class InstallWorker(QThread):
                 os.remove('/etc/tmpfiles.d/tmpfslogs.conf')
                 self.log_signal.emit(_("<span style='color: #e67e22;'>✔ tmpfs configuration removed.</span>"))
 
+        # 8. AUTOSTART DEL TRAY
         if self.tasks['autostart']:
             self.create_autostart()
         else:
@@ -174,6 +212,9 @@ class InstallWorker(QThread):
                 os.remove(path)
                 self.log_signal.emit(_("<span style='color: #e67e22;'>✔ Autostart removed.</span>"))
 
+        # REINICIO FINAL DE SERVICIOS
+        self.run_cmd("systemctl restart apache2 mariadb", _("Restarting System Services"))
+        
         self.finished_signal.emit(True)
 
 class LampGui(QMainWindow):
@@ -194,7 +235,6 @@ class LampGui(QMainWindow):
         layout = QVBoxLayout(central)
         layout.setSpacing(8)
         
-        # BARRA SUPERIOR (Selector de Idioma)
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.combo_lang = QComboBox()
@@ -204,7 +244,6 @@ class LampGui(QMainWindow):
         top_bar.addWidget(self.combo_lang)
         layout.addLayout(top_bar)
 
-        # TÍTULO
         self.title_label = QLabel()
         self.title_label.setFont(QFont("sans-serif", 16, QFont.Weight.Bold))
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -216,22 +255,22 @@ class LampGui(QMainWindow):
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
 
-        # SERVIDORES
         self.g_base = QGroupBox()
         v_base = QVBoxLayout()
         self.chk_base = QCheckBox()
         self.chk_sql_sec = QCheckBox()
         self.chk_sql_mode = QCheckBox()
         for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
-        self.g_base.setLayout(v_base); self.opts_layout.addWidget(self.g_base)
+        self.g_base.setLayout(v_base)
+        self.opts_layout.addWidget(self.g_base)
 
-        # PHP
         self.g_php = QGroupBox()
         v_php = QVBoxLayout()
         self.chk_sury = QCheckBox()
         v_php.addWidget(self.chk_sury)
         php_grid = QWidget()
-        grid = QHBoxLayout(php_grid); grid.setContentsMargins(10,0,0,0)
+        grid = QHBoxLayout(php_grid)
+        grid.setContentsMargins(10,0,0,0)
         self.php_checks = {}
         c1, c2 = QVBoxLayout(), QVBoxLayout()
         for i, v in enumerate(PHP_VERSIONS):
@@ -240,17 +279,20 @@ class LampGui(QMainWindow):
             cb.toggled.connect(self.update_sury_checkbox)
             if i < 6: c1.addWidget(cb)
             else: c2.addWidget(cb)
-        grid.addLayout(c1); grid.addLayout(c2)
-        v_php.addWidget(php_grid); self.g_php.setLayout(v_php); self.opts_layout.addWidget(self.g_php)
+        grid.addLayout(c1)
+        grid.addLayout(c2)
+        v_php.addWidget(php_grid)
+        self.g_php.setLayout(v_php)
+        self.opts_layout.addWidget(self.g_php)
 
-        # OPTIMIZACIÓN Y ESCRITORIO
         self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox()
         self.chk_tmpfs = QCheckBox()
         self.chk_autostart = QCheckBox()
         for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: v_ext.addWidget(c)
-        self.g_ext.setLayout(v_ext); self.opts_layout.addWidget(self.g_ext)
+        self.g_ext.setLayout(v_ext)
+        self.opts_layout.addWidget(self.g_ext)
 
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll, stretch=1)
@@ -338,7 +380,6 @@ class LampGui(QMainWindow):
             'autostart': self.chk_autostart.isChecked()
         }
         
-        # --- SOLICITUD SEGURA DE CONTRASEÑA ---
         db_password = ""
         if tasks['sql_sec']:
             password, ok = QInputDialog.getText(
