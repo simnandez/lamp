@@ -145,7 +145,7 @@ class InstallWorker(QThread):
         # 5. INSTALACIÓN DE VERSIONES DE PHP Y GENERACIÓN COMPLETA DE XDEBUG.INI
         for ver, install in self.php_states.items():
             if install:
-                libs = f"php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
+                libs = f"php{ver} libapache2-mod-php{ver} php{ver}-xdebug php{ver}-curl php{ver}-gd php{ver}-xml php{ver}-mysql php{ver}-mbstring php{ver}-soap php{ver}-intl php{ver}-zip php{ver}-imap php{ver}-cgi"
                 if ver in ["5.6", "7.0", "7.1"]:
                     libs += f" php{ver}-mcrypt php{ver}-xmlrpc"
 
