@@ -232,10 +232,12 @@ class LampGui(QMainWindow):
         central = QWidget()
         self.real_user, self.user_home, self.user_uid, self.user_gid = get_real_user_info()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 12, 12, 12)
         
+        main_layout = QVBoxLayout(central)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        
+        # Barra superior con selector de idioma
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.combo_lang = QComboBox()
@@ -248,81 +250,96 @@ class LampGui(QMainWindow):
             
         self.combo_lang.currentIndexChanged.connect(self.on_lang_changed)
         top_bar.addWidget(self.combo_lang)
-        layout.addLayout(top_bar)
+        main_layout.addLayout(top_bar)
 
+        # Título
         self.title_label = QLabel()
         title_font = self.title_label.font()
         title_font.setPointSize(15)
         title_font.setBold(True)
         self.title_label.setFont(title_font)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.title_label)
+        main_layout.addWidget(self.title_label)
 
+        # QScrollArea nativa adaptable
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
+        # Margen derecho suficiente para dar espacio a la scrollbar de cualquier tema
+        self.opts_layout.setContentsMargins(6, 6, 12, 6)
+        self.opts_layout.setSpacing(10)
 
+        # Grupo 1: Base
         self.g_base = QGroupBox()
         v_base = QVBoxLayout()
         self.chk_base = QCheckBox()
         self.chk_sql_sec = QCheckBox()
         self.chk_sql_mode = QCheckBox()
-        for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: v_base.addWidget(c)
+        for c in [self.chk_base, self.chk_sql_sec, self.chk_sql_mode]: 
+            v_base.addWidget(c)
         self.g_base.setLayout(v_base)
         self.opts_layout.addWidget(self.g_base)
 
+        # Grupo 2: PHP
         self.g_php = QGroupBox()
         v_php = QVBoxLayout()
         self.chk_sury = QCheckBox()
         v_php.addWidget(self.chk_sury)
+        
         php_grid = QWidget()
         grid = QHBoxLayout(php_grid)
-        grid.setContentsMargins(10,0,0,0)
+        grid.setContentsMargins(10, 4, 4, 4)
         self.php_checks = {}
         c1, c2 = QVBoxLayout(), QVBoxLayout()
         for i, v in enumerate(PHP_VERSIONS):
             cb = QCheckBox(f"PHP {v}")
             self.php_checks[v] = cb
             cb.toggled.connect(self.update_sury_checkbox)
-            if i < 6: c1.addWidget(cb)
-            else: c2.addWidget(cb)
+            if i < 6: 
+                c1.addWidget(cb)
+            else: 
+                c2.addWidget(cb)
         grid.addLayout(c1)
         grid.addLayout(c2)
         v_php.addWidget(php_grid)
         self.g_php.setLayout(v_php)
         self.opts_layout.addWidget(self.g_php)
 
+        # Grupo 3: Extras
         self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox()
         self.chk_tmpfs = QCheckBox()
         self.chk_autostart = QCheckBox()
-        for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: v_ext.addWidget(c)
+        for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: 
+            v_ext.addWidget(c)
         self.g_ext.setLayout(v_ext)
         self.opts_layout.addWidget(self.g_ext)
 
         scroll.setWidget(scroll_content)
-        layout.addWidget(scroll, stretch=1)
+        main_layout.addWidget(scroll, stretch=1)
 
         self.detect_installed_components()
 
+        # Consola con tipografía monoespaciada activa del sistema
         self.console = QTextEdit()
         self.console.setReadOnly(True)
-        self.console.setFixedHeight(160)
-        # Utiliza la fuente monoespaciada configurada en el sistema KDE Plasma
+        self.console.setFixedHeight(150)
         self.console.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        layout.addWidget(self.console)
+        main_layout.addWidget(self.console)
 
+        # Botón con dimensiones estándar y flexibles para el tema del usuario
         self.btn = QPushButton()
-        self.btn.setFixedHeight(45)
+        self.btn.setMinimumHeight(40)
         btn_font = self.btn.font()
         btn_font.setBold(True)
         self.btn.setFont(btn_font)
         self.btn.setIcon(QIcon.fromTheme("system-run", QIcon.fromTheme("dialog-ok-apply")))
         self.btn.clicked.connect(self.start_process)
-        layout.addWidget(self.btn)
+        main_layout.addWidget(self.btn)
 
     def on_lang_changed(self, index):
         lang_code = self.combo_lang.itemData(index)
@@ -432,7 +449,23 @@ class LampGui(QMainWindow):
 
 
 if __name__ == "__main__":
+    # 1. Obtener la información del usuario real (incluso si se ejecuta como root)
+    real_user, user_home, _, _ = get_real_user_info()
+
+    # 2. Redirigir el entorno de Qt a la configuración del usuario real
+    # para cargar su tema activo, fuentes, estilos de botones e iconos de KDE
+    if user_home and os.path.exists(user_home):
+        user_config = os.path.join(user_home, ".config")
+        if os.path.exists(user_config):
+            os.environ["XDG_CONFIG_HOME"] = user_config
+        if "XDG_CURRENT_DESKTOP" not in os.environ:
+            os.environ["XDG_CURRENT_DESKTOP"] = "KDE"
+        if "QT_QPA_PLATFORMTHEME" not in os.environ:
+            os.environ["QT_QPA_PLATFORMTHEME"] = "kde"
+
+    # 3. Inicializar Qt sin forzar estilo (Qt aplicará el tema activo del escritorio)
     app = QApplication(sys.argv)
+    
     win = LampGui()
     win.show()
     sys.exit(app.exec())
