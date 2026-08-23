@@ -98,14 +98,6 @@ class InstallWorker(QThread):
         except Exception as e:
             self.log_signal.emit(_("<span style='color: #e74c3c;'>✘ Autostart error: {}</span>").format(e))
 
-    def setup_tmpfs_logs(self):
-        conf = "d /var/log/apache2 755 root adm -\nd /var/log/mysql 2755 mysql adm -\n"
-        try:
-            with open('/etc/tmpfiles.d/tmpfslogs.conf', 'w') as f: f.write(conf)
-            self.log_signal.emit(_("<span style='color: #27ae60;'>✔ RAM logs configured (tmpfs).</span>"))
-        except Exception as e:
-            self.log_signal.emit(_("✘ tmpfs error: {}").format(e))
-
     def run(self):
         # 1. ACTUALIZACIÓN E INSTALACIÓN BASE
         if self.tasks['base']:
@@ -194,15 +186,7 @@ class InstallWorker(QThread):
         else:
             self.run_cmd("a2dismod rewrite", _("Disabling ModRewrite"))
 
-        # 7. LOGS EN RAM (TMPFS)
-        if self.tasks['tmpfs']:
-            self.setup_tmpfs_logs()
-        else:
-            if os.path.exists('/etc/tmpfiles.d/tmpfslogs.conf'):
-                os.remove('/etc/tmpfiles.d/tmpfslogs.conf')
-                self.log_signal.emit(_("<span style='color: #e67e22;'>✔ tmpfs configuration removed.</span>"))
-
-        # 8. AUTOSTART DEL TRAY
+        # 7. AUTOSTART DEL TRAY
         if self.tasks['autostart']:
             self.create_autostart()
         else:
@@ -268,7 +252,6 @@ class LampGui(QMainWindow):
         
         scroll_content = QWidget()
         self.opts_layout = QVBoxLayout(scroll_content)
-        # Margen derecho suficiente para dar espacio a la scrollbar de cualquier tema
         self.opts_layout.setContentsMargins(6, 6, 12, 6)
         self.opts_layout.setSpacing(10)
 
@@ -312,9 +295,8 @@ class LampGui(QMainWindow):
         self.g_ext = QGroupBox()
         v_ext = QVBoxLayout()
         self.chk_apache = QCheckBox()
-        self.chk_tmpfs = QCheckBox()
         self.chk_autostart = QCheckBox()
-        for c in [self.chk_apache, self.chk_tmpfs, self.chk_autostart]: 
+        for c in [self.chk_apache, self.chk_autostart]: 
             v_ext.addWidget(c)
         self.g_ext.setLayout(v_ext)
         self.opts_layout.addWidget(self.g_ext)
@@ -331,7 +313,7 @@ class LampGui(QMainWindow):
         self.console.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         main_layout.addWidget(self.console)
 
-        # Botón con dimensiones estándar y flexibles para el tema del usuario
+        # Botón con dimensiones estándar
         self.btn = QPushButton()
         self.btn.setMinimumHeight(40)
         btn_font = self.btn.font()
@@ -367,9 +349,8 @@ class LampGui(QMainWindow):
         self.g_php.setTitle(_("PHP (Sury.org Repository)"))
         self.chk_sury.setText(_("Add multiple PHP versions repository"))
         
-        self.g_ext.setTitle(_("Apache configuration & permissions"))
+        self.g_ext.setTitle(_("System & Environment Configuration"))
         self.chk_apache.setText(_("Enable ModRewrite and adjust /var/www/html permissions"))
-        self.chk_tmpfs.setText(_("Move logs to RAM (tmpfs) - Recommended for SSD"))
         self.chk_autostart.setText(_("Add 'Lamp tray' to Autostart"))
         
         self.btn.setText(_(" SYNCHRONIZE CHANGES (INSTALL / UNINSTALL)"))
@@ -398,9 +379,6 @@ class LampGui(QMainWindow):
             except Exception:
                 pass
 
-        if os.path.exists('/etc/tmpfiles.d/tmpfslogs.conf'):
-            self.chk_tmpfs.setChecked(True)
-
         if os.path.exists(os.path.join(self.user_home, ".config", "autostart", "lamp-tray.desktop")):
             self.chk_autostart.setChecked(True)
 
@@ -413,6 +391,10 @@ class LampGui(QMainWindow):
         self.console.append(text)
         self.console.verticalScrollBar().setValue(self.console.verticalScrollBar().maximum())
 
+    def on_process_finished(self):
+        self.btn.setEnabled(True)
+        QMessageBox.information(self, _("Success"), _("The synchronization process has finished successfully."))
+
     def start_process(self):
         if os.geteuid() != 0:
             QMessageBox.critical(self, _("Error"), _("You must run this as root."))
@@ -421,8 +403,7 @@ class LampGui(QMainWindow):
         tasks = {
             'base': self.chk_base.isChecked(), 'sql_sec': self.chk_sql_sec.isChecked(),
             'sql_mode': self.chk_sql_mode.isChecked(), 'sury': self.chk_sury.isChecked(),
-            'apache': self.chk_apache.isChecked(), 'tmpfs': self.chk_tmpfs.isChecked(),
-            'autostart': self.chk_autostart.isChecked()
+            'apache': self.chk_apache.isChecked(), 'autostart': self.chk_autostart.isChecked()
         }
         
         db_password = ""
@@ -444,16 +425,13 @@ class LampGui(QMainWindow):
         
         self.worker = InstallWorker(tasks, php_states, db_password)
         self.worker.log_signal.connect(self.log)
-        self.worker.finished_signal.connect(lambda: self.btn.setEnabled(True))
+        self.worker.finished_signal.connect(self.on_process_finished)
         self.worker.start()
 
 
 if __name__ == "__main__":
-    # 1. Obtener la información del usuario real (incluso si se ejecuta como root)
     real_user, user_home, _, _ = get_real_user_info()
 
-    # 2. Redirigir el entorno de Qt a la configuración del usuario real
-    # para cargar su tema activo, fuentes, estilos de botones e iconos de KDE
     if user_home and os.path.exists(user_home):
         user_config = os.path.join(user_home, ".config")
         if os.path.exists(user_config):
@@ -463,7 +441,6 @@ if __name__ == "__main__":
         if "QT_QPA_PLATFORMTHEME" not in os.environ:
             os.environ["QT_QPA_PLATFORMTHEME"] = "kde"
 
-    # 3. Inicializar Qt sin forzar estilo (Qt aplicará el tema activo del escritorio)
     app = QApplication(sys.argv)
     
     win = LampGui()

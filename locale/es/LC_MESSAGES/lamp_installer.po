@@ -28,8 +28,8 @@ msgstr "PHP (Repositorio Sury.org)"
 msgid "Add multiple PHP versions repository"
 msgstr "Añadir repositorio de múltiples versiones PHP"
 
-msgid "Apache configuration & permissions"
-msgstr "Configuración Apache y permisos"
+msgid "System & Environment Configuration"
+msgstr "Configuración del sistema y entorno"
 
 msgid "Enable ModRewrite and adjust /var/www/html permissions"
 msgstr "Habilitar ModRewrite y ajustar permisos en /var/www/html"
@@ -99,3 +99,6 @@ msgstr "Contraseña de Base de Datos"
 
 msgid "Enter new password for MariaDB root user:"
 msgstr "Introduce la nueva contraseña para el usuario root de MariaDB:"
+
+msgid "The synchronization process has finished successfully."
+msgstr "El proceso de instalación/sincronización ha finalizado correctamente."
